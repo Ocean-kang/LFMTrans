@@ -56,9 +56,11 @@ def laplacian_eigendecomposition(L: torch.tensor, k: int, device) -> torch.Tenso
     eigenvalues = eigenvalues[sorted_indices]
     eigenvectors = eigenvectors[:, sorted_indices]
     
-    # Select the first k eigenvectors
+    # Select the first k eigenvectors and eigenvalues
     eigvecs = eigenvectors[:, :k]
-    eigvecs = eigvecs.transpose(1,0)
+    eigvecs = eigvecs.transpose(1, 0)
+    # eigvals_diag = torch.diag(eigenvalues[:k])
+    eigvals = eigenvalues[:k]
 
-    return eigvecs
+    return eigvecs, eigvals
 
