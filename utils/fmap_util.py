@@ -1,3 +1,4 @@
+# code adapted from original EOT-Correspondence implementation https://github.com/Tungthanhlee/EOT-Correspondence
 import numpy as np
 import torch
 

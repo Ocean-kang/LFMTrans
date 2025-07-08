@@ -21,6 +21,7 @@ def knn_graph_making(cfg, X: torch.Tensor, metric: str = 'ip') -> Tuple[np.ndarr
             - distances or similarity scores of shape [n_samples, k]
             - indices of nearest neighbors of shape [n_samples, k]
     """
+    metric = cfg.knngraph.knn_fn
 
     assert metric in ['L2', 'ip'], f"Unsupported metric: {metric}, choose 'L2' or 'ip'."
     assert hasattr(cfg, 'knngraph') and hasattr(cfg.knngraph, 'k'), "cfg.knngraph.k not found"
@@ -58,7 +59,7 @@ def weight_matrix_construct(cfg, X: torch.Tensor, device, metric: Literal['L2', 
     Returns:
         torch.Tensor: [n, n] matrix of distances or similarities
     """
-
+    metric = cfg.knngraph.W_full_fn
     assert metric in ['L2', 'ip'], f"Unsupported metric: {metric}, choose 'L2' or 'ip'."
 
     # Detach and ensure contiguous for safety
@@ -79,7 +80,7 @@ def knn_weight_matrix_construct(
         W_full: torch.tensor,
         knn_idx: np.array,
         device,
-        fn: str='heat kernal',
+        fn: str='heat_kernal',
         symmetrize: bool = True
     ) -> torch.Tensor:
     """
@@ -87,6 +88,7 @@ def knn_weight_matrix_construct(
 
     """
     sigma = cfg.knngraph.sigma
+    fn = cfg.knngraph.W_fn
     W_full = W_full = W_full.to(device)
     n, k = knn_idx.shape
 
@@ -97,8 +99,8 @@ def knn_weight_matrix_construct(
             dist = W_full[i, j_idx]
 
             # Apply weighting function
-            if fn == 'heat kernel':
-                w = np.exp(- dist**2 / sigma**2)
+            if fn == 'heat_kernel':
+                w = torch.exp(- dist**2 / sigma**2)
             elif fn == 'inv':
                 w = 1.0 / (dist + 1e-6)
             elif fn == 'raw':

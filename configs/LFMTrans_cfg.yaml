@@ -7,7 +7,10 @@ knngraph:
   sigma: 1
   knn_fn: ip # 'ip' or 'L2'
   W_full_fn: ip # 'ip' or 'L2'
-  W_fn: raw # 'heat kernal' or 'inv' or 'raw'
+  W_fn: heat_kernel # 'heat_kernal' or 'inv' or 'raw'
 
 laplacian_mat:
-  k: 20 # K eigenvectors for using in decomposition
+  k: 150 # K eigenvectors for using in decomposition
+
+fm_retrieval:
+  metric: ip # 'ip' or 'L2'

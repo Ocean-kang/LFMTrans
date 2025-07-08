@@ -9,6 +9,7 @@ from utils.LatentFuncitonMap import build_normalized_laplacian_matrix, laplacian
 from model.fmap_network import RegularizedFMNet
 from loss.fmap_loss import SURFMNetLoss
 from utils.shuffle_utils import shuffle_tensor
+from utils.fmap_retrieval import fmap_retrieval, accrucy_fn
 
 
 
@@ -50,6 +51,7 @@ if __name__ == '__main__':
 
     # shuffle vision side
     feat_v_shuffled, shuffle_idx = shuffle_tensor(cfg, device, feat_v)
+    shuffle_idx = shuffle_idx.squeeze(0)
 
 
     # build regularized_funciton_map model
@@ -60,4 +62,10 @@ if __name__ == '__main__':
     # fucmap_loss = SURFMNetLoss()
     # fm_loss_dict = fucmap_loss(Cxy, Cyx, v_vals, t_vals)
 
-    breakpoint()
+    Cxy = Cxy.squeeze(0)
+    v_vecs = v_vecs.squeeze(0)
+    t_vecs = t_vecs.squeeze(0)
+    csr_index = fmap_retrieval(cfg, Cxy, v_vecs, t_vecs)
+
+    accurcy = accrucy_fn(shuffle_idx, csr_index)
+    print(accurcy)

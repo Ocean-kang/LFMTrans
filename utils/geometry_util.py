@@ -12,8 +12,8 @@ import scipy.spatial
 import scipy.sparse.linalg as sla
 import sklearn.neighbors as neighbors
 
-import robust_laplacian
-import potpourri3d as pp3d
+# import robust_laplacian
+# import potpourri3d as pp3d
 
 import torch
 
