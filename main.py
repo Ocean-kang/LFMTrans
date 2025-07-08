@@ -20,10 +20,10 @@ if __name__ == '__main__':
         cfg_dict = yaml.safe_load(config)
     cfg = edict(cfg_dict)
 
-    with open('./feature/feat_clipv_150_B.pkl', 'rb') as file:
+    with open('./feature/feat_dinov2_patch_cocostuff_L.pkl', 'rb') as file:
         feat_v = pkl.load(file)
 
-    with open('./feature/feat_clipv_150_B.pkl', 'rb') as file:
+    with open('./feature/feat_dinov2_patch_cocostuff_L.pkl', 'rb') as file:
         feat_t = pkl.load(file)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

@@ -10,7 +10,13 @@ knngraph:
   W_fn: heat_kernel # 'heat_kernal' or 'inv' or 'raw'
 
 laplacian_mat:
-  k: 150 # K eigenvectors for using in decomposition
+  k: 130 # K eigenvectors for using in decomposition
 
 fm_retrieval:
   metric: ip # 'ip' or 'L2'
+
+model:
+  test_dimension: 4096
+  vision_dimension: 1024
+  nums_epoch: 100
+  lr_proj: 1e-3
