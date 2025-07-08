@@ -7,6 +7,8 @@ from easydict import EasyDict as edict
 from utils.knngraph import Latent_knn_graph_construct
 from utils.LatentFuncitonMap import build_normalized_laplacian_matrix, laplacian_eigendecomposition
 from model.fmap_network import RegularizedFMNet
+from loss.fmap_loss import SURFMNetLoss
+from utils.shuffle_utils import shuffle_tensor
 
 
 
@@ -45,6 +47,17 @@ if __name__ == '__main__':
     feat_t = feat_t.float().to(device).unsqueeze(0)
     t_vecs = t_vecs.unsqueeze(0)
     t_vals = t_vals.unsqueeze(0)
+
+    # shuffle vision side
+    feat_v_shuffled, shuffle_idx = shuffle_tensor(cfg, device, feat_v)
+
+
     # build regularized_funciton_map model
-    fm_net = RegularizedFMNet()
-    Cxy, Cyx = fm_net(feat_v, feat_t, v_vals, t_vals, v_vecs, t_vecs)
+    fm_net = RegularizedFMNet(bidirectional=True)
+    Cxy, Cyx = fm_net(feat_v_shuffled, feat_t, v_vals, t_vals, v_vecs, t_vecs)
+
+    # fm_loss
+    # fucmap_loss = SURFMNetLoss()
+    # fm_loss_dict = fucmap_loss(Cxy, Cyx, v_vals, t_vals)
+
+    breakpoint()
