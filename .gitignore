@@ -208,3 +208,5 @@ __marimo__/
 
 # LFMTrans
 feature
+weight/
+train_proj/

@@ -16,7 +16,8 @@ fm_retrieval:
   metric: ip # 'ip' or 'L2'
 
 model:
-  test_dimension: 4096
+  text_dimension: 4096
   vision_dimension: 1024
-  nums_epoch: 100
-  lr_proj: 1e-3
+  nums_epoch: 1000
+  lr_proj: 0.001
+  DINOv2_BACKBONE_SIZE: large # small, base, large, giant
