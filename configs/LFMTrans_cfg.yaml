@@ -19,5 +19,5 @@ model:
   text_dimension: 4096
   vision_dimension: 1024
   nums_epoch: 1000
-  lr_proj: 0.001
+  lr_proj: 0.00005
   DINOv2_BACKBONE_SIZE: large # small, base, large, giant

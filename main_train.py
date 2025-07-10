@@ -65,7 +65,7 @@ def train_proj(cfg, model, feature_dict, criterion, device, _log):
         loss_dict = criterion(output, y)
 
         # Weight_init
-        (W_lap, W_orth, W_bij) = (0.1, 0.1, 10)
+        (W_lap, W_orth, W_bij) = (1.0, 1.0, 0.0)
 
 
         loss = loss_dict['l_lap'] * W_lap + loss_dict['l_orth'] * W_orth + loss_dict['l_bij'] * W_bij
@@ -79,6 +79,12 @@ def train_proj(cfg, model, feature_dict, criterion, device, _log):
 
     return None
 
+# @ex.capture
+# def eval_proj(cfg, model, feature_dict, device, _log):
+#     with torch.no_grad:
+
+
+#     return None
 
 @ex.automain
 def main(_run, _log):
@@ -172,7 +178,7 @@ def main(_run, _log):
     train_proj(cfg, model, feature_dict, criterion, device, _log)
 
     if os.path.isdir('./weight'):
-        torch.save(model.state_dict(), f"./weight/proj.pth")
+        torch.save(model.state_dict(), f"./weight/proj4.pth")
     else:
         os.makedirs('./weight', exist_ok=True)
         torch.save(model.state_dict(), f"./weight/proj.pth")

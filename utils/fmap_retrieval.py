@@ -56,3 +56,21 @@ def accrucy_fn(shuffle_idx, fm_index):
     equal_count = (shuffle_idx == fm_index).sum().item()
 
     return equal_count
+
+def cos_sim_retrieval(feat_1, feat_2):
+    '''
+
+    Args:
+        feat_1: N_cls x D2
+        feat_2: N_cls x D1
+
+    Returns:
+        retrieval ratio
+    '''
+    feat_1_ = feat_1 / feat_1.norm(dim=-1, keepdim=True)
+    feat_2_ = feat_2 / feat_2.norm(dim=-1, keepdim=True)
+    sim = (feat_1_ @ feat_2_.transpose(1, 0)).cpu()
+    idx = sim.argmax(0)
+    retrieval_sim = (idx == torch.Tensor(range(len(sim)))).sum() / len(sim)
+
+    return retrieval_sim

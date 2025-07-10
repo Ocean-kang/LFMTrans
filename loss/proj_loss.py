@@ -34,6 +34,12 @@ class proj_loss(nn.Module):
         feat_t = feat_t.float().to(device).unsqueeze(0)
         t_vecs = t_vecs.unsqueeze(0)
         t_vals = t_vals.unsqueeze(0)
+
+        # detach grad of eigenvec and eigenval
+        v_vecs = v_vecs.detach()
+        v_vals = v_vals.detach()
+        t_vecs = t_vecs.detach()
+        t_vals = t_vals.detach()
         
         # build regularized_funciton_map model
         fm_net = RegularizedFMNet(bidirectional=True)
