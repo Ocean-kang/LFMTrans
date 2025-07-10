@@ -2,6 +2,7 @@ from typing import Tuple, Literal
 
 import faiss
 import numpy as np
+from scipy.sparse import coo_matrix
 import torch
 import torch.nn.functional as F
 
@@ -81,6 +82,46 @@ def knn_weight_matrix_construct(
         knn_idx: np.array,
         device,
         fn: str='heat_kernal',
+        symmetrize: bool = False
+    ) -> torch.Tensor:
+    """
+    knn weight matrix construction
+
+    """
+    sigma = cfg.knngraph.sigma
+    fn = cfg.knngraph.W_fn
+    W_full = W_full.to(device)
+
+    n, k = knn_idx.shape
+    W_dense = torch.zeros((n, n), dtype=torch.float32, device=device)
+
+    for i in range(n):
+        for j in range(k):
+            j_idx = knn_idx[i, j]
+            dist = W_full[i, j_idx]
+
+            # Apply weighting function
+            if fn == 'heat_kernel':
+                w = torch.exp(- dist**2 / sigma**2)
+            elif fn == 'inv':
+                w = 1.0 / (dist + 1e-6)
+            elif fn == 'raw':
+                w = dist
+            else:
+                raise ValueError(f"Unsupported weighting function: {fn}")
+            
+            W_dense[i, j_idx] = w
+            
+    if symmetrize:
+        W_dense = 0.5 * (W_dense + W_dense.T)
+    return W_dense
+
+def knn_weight_matrix_construct_sparse_torch(
+        cfg,
+        W_full: torch.tensor,
+        knn_idx: np.array,
+        device,
+        fn: str='heat_kernal',
         symmetrize: bool = True
     ) -> torch.Tensor:
     """
@@ -89,7 +130,7 @@ def knn_weight_matrix_construct(
     """
     sigma = cfg.knngraph.sigma
     fn = cfg.knngraph.W_fn
-    W_full = W_full = W_full.to(device)
+    W_full = W_full.to(device)
     n, k = knn_idx.shape
 
     row, col, data = [], [], []
@@ -122,7 +163,83 @@ def knn_weight_matrix_construct(
         A = 0.5 * (A + A.T)
     return A
 
+def knn_weight_matrix_construct_sparse_numpy(
+    cfg,
+    W_full: torch.tensor,
+    knn_idx: np.ndarray,
+    fn: str = 'heat_kernel',
+    symmetrize: bool = False
+) -> coo_matrix:
+    """
+    Construct a sparse KNN weight matrix in COO format using NumPy & SciPy.
+
+    Args:
+        cfg: config with cfg.knngraph.sigma and cfg.knngraph.W_fn
+        W_full (torch.tensor): full distance matrix [n, n]
+        knn_idx (np.ndarray): neighbor indices [n, k]
+        fn (str): weighting function: 'heat_kernel', 'inv', or 'raw'
+        symmetrize (bool): whether to make matrix symmetric
+
+    Returns:
+        coo_matrix: sparse weight matrix [n, n]
+    """
+    sigma = cfg.knngraph.sigma
+    fn = cfg.knngraph.W_fn
+    n, k = knn_idx.shape
+    W_full = W_full.cpu().numpy()
+
+    row, col, data = [], [], []
+
+    for i in range(n):
+        for j in range(k):
+            j_idx = knn_idx[i, j]
+            dist = W_full[i, j_idx]
+
+            if fn == 'heat_kernel':
+                w = np.exp(- dist**2 / (sigma**2))
+            elif fn == 'inv':
+                w = 1.0 / (dist + 1e-6)
+            elif fn == 'raw':
+                w = dist
+            else:
+                raise ValueError(f"Unsupported weighting function: {fn}")
+
+            row.append(i)
+            col.append(j_idx)
+            data.append(w)
+
+    W = coo_matrix((data, (row, col)), shape=(n, n))
+
+    if symmetrize:
+        W = 0.5 * (W + W.transpose())
+
+    return W
+
 def Latent_knn_graph_construct(cfg, feat, device, symmetrize):
+    '''
+    General Function dense matrix!!!
+    '''
+    # knn graph construction
+    (_, knn_idx) = knn_graph_making(cfg, X=feat, metric=cfg.knngraph.knn_fn)
+    # W_full weight construction
+    W_full = weight_matrix_construct(cfg, X=feat, device=device, metric=cfg.knngraph.W_full_fn)
+    # W_knn weight construction
+    W = knn_weight_matrix_construct(cfg, W_full, knn_idx, device, fn=cfg.knngraph.W_fn, symmetrize=symmetrize)
+    return W
+
+def Latent_knn_graph_construct_numpy(cfg, feat, device='cpu', symmetrize=False):
+    '''
+    General Function (CPU)!!!
+    '''
+    # knn graph construction
+    (_, knn_idx) = knn_graph_making(cfg, X=feat, metric=cfg.knngraph.knn_fn)
+    # W_full weight construction
+    W_full = weight_matrix_construct(cfg, X=feat, device=device, metric=cfg.knngraph.W_full_fn)
+    # W_knn weight construction
+    W = knn_weight_matrix_construct_sparse_numpy(cfg, W_full, knn_idx, fn=cfg.knngraph.W_fn, symmetrize=symmetrize)
+    return W
+
+def Latent_knn_graph_construct_gpu(cfg, feat, device, symmetrize):
     '''
     General Function!!!
     '''
@@ -134,4 +251,3 @@ def Latent_knn_graph_construct(cfg, feat, device, symmetrize):
     W = knn_weight_matrix_construct(cfg, W_full, knn_idx, device, fn=cfg.knngraph.W_fn, symmetrize=symmetrize)
     W = W.to_dense()
     return W
-

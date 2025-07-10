@@ -4,8 +4,8 @@ import yaml
 import torch
 from easydict import EasyDict as edict
 
-from utils.knngraph import Latent_knn_graph_construct
-from utils.LatentFuncitonMap import build_normalized_laplacian_matrix, laplacian_eigendecomposition
+from utils.knngraph import Latent_knn_graph_construct, Latent_knn_graph_construct_numpy
+from utils.LatentFuncitonMap import build_normalized_laplacian_matrix, laplacian_eigendecomposition, laplacian_main_sparse
 from model.fmap_network import RegularizedFMNet
 from loss.fmap_loss import SURFMNetLoss
 from utils.shuffle_utils import shuffle_tensor
@@ -33,7 +33,7 @@ if __name__ == '__main__':
 
 
     model = LinearProj(cfg=cfg)
-    model.load_state_dict(torch.load("./weight/proj1.pth", map_location=device))
+    model.load_state_dict(torch.load("./weight/fmap/proj1.pth", map_location=device))
     model.eval()
 
     model = model.to(device)
@@ -43,14 +43,30 @@ if __name__ == '__main__':
     feat_t_trans = model(feat_t)
 
     # vision
-    W_v = Latent_knn_graph_construct(cfg, feat_v, device, symmetrize=True)
-    L_v = build_normalized_laplacian_matrix(W_v, device)
-    v_vecs, v_vals = laplacian_eigendecomposition(L_v, cfg.laplacian_mat.k, device)
+    W_v = Latent_knn_graph_construct_numpy(cfg, feat_v, device, symmetrize=True)
+    v_vecs, v_vals = laplacian_main_sparse(W_v, cfg.laplacian_mat.k)
 
     #language
-    W_t = Latent_knn_graph_construct(cfg, feat_t_trans, device, symmetrize=True)
-    L_t = build_normalized_laplacian_matrix(W_t, device)
-    t_vecs, t_vals = laplacian_eigendecomposition(L_t, cfg.laplacian_mat.k, device)
+    W_t = Latent_knn_graph_construct_numpy(cfg, feat_t_trans, device, symmetrize=True)
+    t_vecs, t_vals = laplacian_main_sparse(W_t, cfg.laplacian_mat.k)
+
+    # cpu -> gpu and np.arrary -> torch.tensor
+    # vision
+    v_vecs = torch.from_numpy(v_vecs).to(device).float()
+    v_vals = torch.from_numpy(v_vals).to(device).float()
+    # language
+    t_vecs = torch.from_numpy(t_vecs).to(device).float()
+    t_vals = torch.from_numpy(t_vals).to(device).float()
+
+    # # vision
+    # W_v = Latent_knn_graph_construct(cfg, feat_v, device, symmetrize=True)
+    # L_v = build_normalized_laplacian_matrix(W_v, device)
+    # v_vecs, v_vals = laplacian_eigendecomposition(L_v, cfg.laplacian_mat.k, device)
+
+    # #language
+    # W_t = Latent_knn_graph_construct(cfg, feat_t_trans, device, symmetrize=True)
+    # L_t = build_normalized_laplacian_matrix(W_t, device)
+    # t_vecs, t_vals = laplacian_eigendecomposition(L_t, cfg.laplacian_mat.k, device)
 
     # adding batch dimension
     # vision

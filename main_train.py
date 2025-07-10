@@ -11,7 +11,7 @@ from sacred import Experiment
 from easydict import EasyDict as edict
 
 from model.Encoder import LinearProj
-from loss.proj_loss import proj_loss
+from loss.proj_loss import proj_loss, proj_loss_sparse
 
 warnings.filterwarnings("ignore", category=UserWarning)
 ex = Experiment('uvlt')
@@ -173,12 +173,15 @@ def main(_run, _log):
     
     
     model = LinearProj(cfg=cfg)
-    criterion = proj_loss(cfg=cfg)
+    # dense matrix
+    # criterion = proj_loss(cfg=cfg)
+    # sparse matrix
+    criterion = proj_loss_sparse(cfg=cfg)
 
     train_proj(cfg, model, feature_dict, criterion, device, _log)
 
     if os.path.isdir('./weight'):
-        torch.save(model.state_dict(), f"./weight/proj4.pth")
+        torch.save(model.state_dict(), f"./weight/proj6.pth")
     else:
         os.makedirs('./weight', exist_ok=True)
         torch.save(model.state_dict(), f"./weight/proj.pth")
