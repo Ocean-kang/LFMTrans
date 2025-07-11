@@ -51,7 +51,6 @@ class proj_loss(nn.Module):
 
         return fm_loss_dict
     
-
 class proj_loss_sparse(nn.Module):
 
     def __init__(self, cfg):
@@ -102,5 +101,36 @@ class proj_loss_sparse(nn.Module):
         # fm_loss
         fucmap_loss = SURFMNetLoss()
         fm_loss_dict = fucmap_loss(Cxy, Cyx, v_vals, t_vals)
+
+        return fm_loss_dict
+    
+
+class proj_loss_sparse_oncefmap(nn.Module):
+
+    def __init__(self, cfg):
+        super(proj_loss_sparse_oncefmap, self).__init__()
+        self.cfg = cfg
+        pass
+    
+    def forward(self, feat_x, feat_y, x_vals, y_vals, x_vecs, y_vecs):
+
+        # adding batch dimension
+
+        feat_y = feat_y.unsqueeze(0)
+        y_vecs = y_vecs.unsqueeze(0)
+        y_vals = y_vals.unsqueeze(0)
+        
+        feat_x = feat_x.float().unsqueeze(0)
+        x_vecs = x_vecs.unsqueeze(0)
+        x_vals = x_vals.unsqueeze(0)
+
+        
+        # build regularized_funciton_map model
+        fm_net = RegularizedFMNet(bidirectional=True)
+        Cxy, Cyx = fm_net(feat_x, feat_y, x_vals, y_vals, x_vecs, y_vecs)
+
+        # fm_loss
+        fucmap_loss = SURFMNetLoss()
+        fm_loss_dict = fucmap_loss(Cxy, Cyx, x_vals, y_vals)
 
         return fm_loss_dict

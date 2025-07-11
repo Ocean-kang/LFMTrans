@@ -33,7 +33,7 @@ if __name__ == '__main__':
 
 
     model = LinearProj(cfg=cfg)
-    model.load_state_dict(torch.load("./weight/fmap/proj1.pth", map_location=device))
+    model.load_state_dict(torch.load("./weight/fmap/proj6.pth", map_location=device))
     model.eval()
 
     model = model.to(device)
@@ -99,3 +99,4 @@ if __name__ == '__main__':
 
     accurcy = accrucy_fn(shuffle_idx, csr_index)
     print(accurcy)
+    breakpoint()
