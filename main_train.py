@@ -16,6 +16,7 @@ from utils.knngraph import Latent_knn_graph_construct_numpy
 from utils.LatentFuncitonMap import laplacian_main_sparse
 from utils.shuffle_utils import shuffle_tensor
 from utils.fmap_retrieval import fmap_retrieval, accrucy_fn, cos_sim_retrieval
+from utils.permutation_compute import compute_permutation_matrices
 from model.fmap_network import RegularizedFMNet
 
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -100,6 +101,11 @@ def train_proj_onceafmap(cfg, model, feature_dict, criterion, device, _log):
     # Load features
     feat_language = feature_dict["llama3_features"]["llama3_coco"].to(device).float()
     feat_vision = feature_dict["dinov2_features"]["dinov2_coco"].to(device).float()
+
+    # adding batch dimension
+    if cfg.train.batchsize == 1:
+        feat_language = feat_language.unsqueeze(0)
+        feat_vision = feat_vision.unsqueeze(0)
     
     # Load model
     model = model.to(device)
@@ -115,14 +121,13 @@ def train_proj_onceafmap(cfg, model, feature_dict, criterion, device, _log):
     W_t = Latent_knn_graph_construct_numpy(cfg, feat_language, device, symmetrize=True)
     t_vecs, t_vals = laplacian_main_sparse(W_t, cfg.laplacian_mat.k)
 
-    # cpu -> gpu and np.arrary -> torch.tensor
+    # cpu -> gpu and np.arrary -> torch.tensor and adding batchsize
     # vision
-    v_vecs = torch.from_numpy(v_vecs).to(device).float()
-    v_vals = torch.from_numpy(v_vals).to(device).float()
+    v_vecs = torch.from_numpy(v_vecs).to(device).float().unsqueeze(0)
+    v_vals = torch.from_numpy(v_vals).to(device).float().unsqueeze(0)
     # language
-    t_vecs = torch.from_numpy(t_vecs).to(device).float()
-    t_vals = torch.from_numpy(t_vals).to(device).float()
-
+    t_vecs = torch.from_numpy(t_vecs).to(device).float().unsqueeze(0)
+    t_vals = torch.from_numpy(t_vals).to(device).float().unsqueeze(0)
 
     total_loss = 0.0
     for epoch in range(num_epochs):
@@ -132,13 +137,20 @@ def train_proj_onceafmap(cfg, model, feature_dict, criterion, device, _log):
 
         optimizer.zero_grad()
         output = model(x)  # [B, vision_dimension]
-        loss_dict = criterion(output, y, t_vals, v_vals, t_vecs, v_vecs)
+
+        # compute permutation
+        Pxy, Pyx = compute_permutation_matrices(cfg, output, y)
+
+        # Loss
+        loss_dict = criterion(output, y, t_vals, v_vals, t_vecs, v_vecs, Pxy, Pyx)
 
         # Weight_init
-        (W_lap, W_orth, W_bij) = (1.0, 1.0, 0.0)
-
-
-        loss = loss_dict['l_lap'] * W_lap + loss_dict['l_orth'] * W_orth + loss_dict['l_bij'] * W_bij
+        (W_lap, W_orth, W_bij, W_align, W_ot) = (1.0, 1.0, 0.0, 1.0, 1.0)
+        loss_fm = loss_dict['l_lap'] * W_lap + loss_dict['l_orth'] * W_orth + loss_dict['l_bij'] * W_bij
+        loss_align = loss_dict['l_align'] * W_align
+        loss_ot = loss_dict['l_ot'] * W_ot
+        loss = loss_fm + loss_align + loss_ot
+        
         loss.backward()
         optimizer.step()
 
@@ -159,6 +171,8 @@ def eval_proj(cfg, model, feature_dict, device, _log):
 
     feat_v = feat_vision
     feat_t_trans = model(feat_language)
+    csr_accuracy_t2v = cos_sim_retrieval(feat_t_trans, feat_v)
+    csr_accuracy_v2t = cos_sim_retrieval(feat_v, feat_t_trans)
 
     # adding batch dimension
     # vision
@@ -191,7 +205,7 @@ def eval_proj(cfg, model, feature_dict, device, _log):
     accurcy_Cyx = accrucy_fn(shuffle_idx, csr_index_Cyx)
 
     accrucy = (accurcy_Cxy + accurcy_Cyx) / 2
-    _log.info(f"Train Finished - Avg accrucy: {accrucy:.4f}")
+    _log.info(f"Train Finished - Avg accrucy: {accrucy:.4f} - CSR_t2v: {csr_accuracy_t2v:.4f} - CSR_v2t: {csr_accuracy_v2t:.4f}")
 
     return None
 
@@ -295,12 +309,12 @@ def main(_run, _log):
 
 
     if os.path.isdir('./weight'):
-        torch.save(model.state_dict(), f"./weight/proj7.pth")
+        torch.save(model.state_dict(), f"./weight/proj8.pth")
     else:
         os.makedirs('./weight', exist_ok=True)
-        torch.save(model.state_dict(), f"./weight/proj7.pth")
+        torch.save(model.state_dict(), f"./weight/proj8.pth")
 
-    with torch.no_grad:
+    with torch.no_grad():
         eval_proj(cfg, model, feature_dict, device, _log)
 
 

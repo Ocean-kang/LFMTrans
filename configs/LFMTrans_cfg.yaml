@@ -21,3 +21,18 @@ model:
   nums_epoch: 1000
   lr_proj: 0.00005
   DINOv2_BACKBONE_SIZE: large # small, base, large, giant
+
+train:
+  batchsize: 1
+
+permute:
+  metric: 'ip' # 'ip' or 'L2'
+
+loss:
+  w_bij: 1.0
+  w_orth: 1.0
+  w_lap: 0.0
+  w_align: 1.0
+  w_ot: 100.0
+  L_ot: 200
+  bidirectional: false

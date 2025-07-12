@@ -219,6 +219,7 @@ def Latent_knn_graph_construct(cfg, feat, device, symmetrize):
     '''
     General Function dense matrix!!!
     '''
+    feat = feat.squeeze(0)
     # knn graph construction
     (_, knn_idx) = knn_graph_making(cfg, X=feat, metric=cfg.knngraph.knn_fn)
     # W_full weight construction
@@ -231,6 +232,7 @@ def Latent_knn_graph_construct_numpy(cfg, feat, device='cpu', symmetrize=False):
     '''
     General Function (CPU)!!!
     '''
+    feat = feat.squeeze(0)
     # knn graph construction
     (_, knn_idx) = knn_graph_making(cfg, X=feat, metric=cfg.knngraph.knn_fn)
     # W_full weight construction
@@ -243,6 +245,7 @@ def Latent_knn_graph_construct_gpu(cfg, feat, device, symmetrize):
     '''
     General Function!!!
     '''
+    feat = feat.squeeze(0)
     # knn graph construction
     (_, knn_idx) = knn_graph_making(cfg, X=feat, metric=cfg.knngraph.knn_fn)
     # W_full weight construction

@@ -4,7 +4,9 @@ import torch.nn as nn
 from utils.knngraph import Latent_knn_graph_construct, Latent_knn_graph_construct_numpy
 from utils.LatentFuncitonMap import build_normalized_laplacian_matrix, laplacian_eigendecomposition, laplacian_main_sparse
 from model.fmap_network import RegularizedFMNet
-from loss.fmap_loss import SURFMNetLoss
+from loss.fmap_loss import SURFMNetLoss, SquaredFrobeniusLoss
+from loss.ot_loss import SW
+
 
 class proj_loss(nn.Module):
 
@@ -56,6 +58,8 @@ class proj_loss_sparse(nn.Module):
     def __init__(self, cfg):
         super(proj_loss_sparse, self).__init__()
         self.cfg = cfg
+        self.fm_net = RegularizedFMNet(bidirectional=True)
+        self.fucmap_loss = SURFMNetLoss()
         pass
     
     def forward(self, feat_v, feat_t):
@@ -95,12 +99,10 @@ class proj_loss_sparse(nn.Module):
         t_vals = t_vals.detach()
         
         # build regularized_funciton_map model
-        fm_net = RegularizedFMNet(bidirectional=True)
-        Cxy, Cyx = fm_net(feat_v, feat_t, v_vals, t_vals, v_vecs, t_vecs)
+        Cxy, Cyx = self.fm_net(feat_v, feat_t, v_vals, t_vals, v_vecs, t_vecs)
 
         # fm_loss
-        fucmap_loss = SURFMNetLoss()
-        fm_loss_dict = fucmap_loss(Cxy, Cyx, v_vals, t_vals)
+        fm_loss_dict = self.fucmap_loss(Cxy, Cyx, v_vals, t_vals)
 
         return fm_loss_dict
     
@@ -110,27 +112,67 @@ class proj_loss_sparse_oncefmap(nn.Module):
     def __init__(self, cfg):
         super(proj_loss_sparse_oncefmap, self).__init__()
         self.cfg = cfg
+        self.fm_net = RegularizedFMNet(bidirectional=True)
+        self.fucmap_loss = SURFMNetLoss()
+        self.permute_loss = SquaredFrobeniusLoss()
+        self.ot_loss = SW(loss_weight=cfg.loss.w_ot, L=cfg.loss.L_ot)
+        self.loss_dict = dict()
         pass
+
+    def _compute_alignment_loss(self, Cxy: torch.Tensor, Cyx: torch.Tensor, 
+                            Pxy: torch.Tensor, Pyx: torch.Tensor,
+                            evecs_x: torch.Tensor, evecs_y: torch.Tensor,
+                            evecs_trans_x: torch.Tensor, evecs_trans_y: torch.Tensor) -> None:
+        """Compute alignment loss between functional maps and permutation matrices.
+        
+        Args:
+            Cxy, Cyx: Functional maps
+            Pxy, Pyx: Permutation matrices
+            evecs_x, evecs_y: Eigenvectors
+            evecs_trans_x, evecs_trans_y: Transposed eigenvectors
+        """
+        # Compute estimated functional maps from permutation matrices
+        Cxy_est = torch.bmm(evecs_trans_y, torch.bmm(Pyx, evecs_x))
+        
+        # Compute alignment loss
+        self.loss_dict['l_align'] = self.permute_loss(Cxy, Cxy_est)
+        
+        # Add bidirectional loss if not partial
+        Cyx_est = torch.bmm(evecs_trans_x, torch.bmm(Pxy, evecs_y))
+        self.loss_dict['l_align'] += self.permute_loss(Cyx, Cyx_est)
+
+
+    def _compute_additional_losses(self, feat_x: torch.Tensor, feat_y: torch.Tensor, Pxy: torch.Tensor, Pyx: torch.Tensor) -> None:
+            """Compute additional losses if available.
+            
+            Args:
+                feat_x, feat_y: Feature tensors
+                Pxy, Pyx: Permutation matrices
+            """
+            self.loss_dict['l_ot'] = self.ot_loss(feat_x, feat_y, Pxy, Pyx)
+            
+
     
-    def forward(self, feat_x, feat_y, x_vals, y_vals, x_vecs, y_vecs):
+    def forward(self, feat_x, feat_y, x_vals, y_vals, x_vecs, y_vecs, Pxy, Pyx):
 
-        # adding batch dimension
+        feat_y = feat_y.float()
+        feat_x = feat_x.float()
 
-        feat_y = feat_y.unsqueeze(0)
-        y_vecs = y_vecs.unsqueeze(0)
-        y_vals = y_vals.unsqueeze(0)
-        
-        feat_x = feat_x.float().unsqueeze(0)
-        x_vecs = x_vecs.unsqueeze(0)
-        x_vals = x_vals.unsqueeze(0)
-
-        
         # build regularized_funciton_map model
-        fm_net = RegularizedFMNet(bidirectional=True)
-        Cxy, Cyx = fm_net(feat_x, feat_y, x_vals, y_vals, x_vecs, y_vecs)
+        Cxy, Cyx = self.fm_net(feat_x, feat_y, x_vals, y_vals, x_vecs, y_vecs)
 
         # fm_loss
-        fucmap_loss = SURFMNetLoss()
-        fm_loss_dict = fucmap_loss(Cxy, Cyx, x_vals, y_vals)
+        fm_loss_dict = self.fucmap_loss(Cxy, Cyx, x_vals, y_vals)
+        self.loss_dict['l_lap'] = fm_loss_dict['l_lap']
+        self.loss_dict['l_orth'] = fm_loss_dict['l_orth']
+        self.loss_dict['l_bij'] = fm_loss_dict['l_bij']
 
-        return fm_loss_dict
+        # permutation loss
+        x_vecs_trans = x_vecs.transpose(2, 1)
+        y_vecs_trans = y_vecs.transpose(2, 1)
+        self._compute_alignment_loss(Cxy, Cyx, Pxy, Pyx, x_vecs_trans, y_vecs_trans, x_vecs, y_vecs)
+
+        # optimal tansport loss
+        self._compute_additional_losses(feat_x, feat_y, Pxy, Pyx)
+
+        return self.loss_dict
