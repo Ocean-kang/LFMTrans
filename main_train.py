@@ -164,7 +164,6 @@ def train_proj_onceafmap(cfg, model, feature_dict, criterion, device, _log):
 @ex.capture
 def eval_proj(cfg, model, feature_dict, device, _log):
 
-    model.eval()
     # Load features
     feat_language = feature_dict["llama3_features"]["llama3_coco"].to(device).float()
     feat_vision = feature_dict["dinov2_features"]["dinov2_coco"].to(device).float()
@@ -173,6 +172,23 @@ def eval_proj(cfg, model, feature_dict, device, _log):
     feat_t_trans = model(feat_language)
     csr_accuracy_t2v = cos_sim_retrieval(feat_t_trans, feat_v)
     csr_accuracy_v2t = cos_sim_retrieval(feat_v, feat_t_trans)
+
+    # compute once eigenvecs and eigenvals in each multimodels
+    # vision
+    W_v = Latent_knn_graph_construct_numpy(cfg, feat_vision, device, symmetrize=True)
+    v_vecs, v_vals = laplacian_main_sparse(W_v, cfg.laplacian_mat.k)
+
+    #language
+    W_t = Latent_knn_graph_construct_numpy(cfg, feat_language, device, symmetrize=True)
+    t_vecs, t_vals = laplacian_main_sparse(W_t, cfg.laplacian_mat.k)
+
+    # cpu -> gpu and np.arrary -> torch.tensor and adding batchsize
+    # vision
+    v_vecs = torch.from_numpy(v_vecs).to(device).float()
+    v_vals = torch.from_numpy(v_vals).to(device).float()
+    # language
+    t_vecs = torch.from_numpy(t_vecs).to(device).float()
+    t_vals = torch.from_numpy(t_vals).to(device).float()
 
     # adding batch dimension
     # vision
@@ -194,6 +210,7 @@ def eval_proj(cfg, model, feature_dict, device, _log):
     Cxy, Cyx = fm_net(feat_v_shuffled, feat_t_trans, v_vals, t_vals, v_vecs, t_vecs)
 
     Cxy = Cxy.squeeze(0)
+    Cyx = Cyx.squeeze(0)
     v_vecs = v_vecs.squeeze(0)
     t_vecs = t_vecs.squeeze(0)
     # Cxy
@@ -309,12 +326,13 @@ def main(_run, _log):
 
 
     if os.path.isdir('./weight'):
-        torch.save(model.state_dict(), f"./weight/proj8.pth")
+        torch.save(model.state_dict(), f"./weight/proj10.pth")
     else:
         os.makedirs('./weight', exist_ok=True)
-        torch.save(model.state_dict(), f"./weight/proj8.pth")
+        torch.save(model.state_dict(), f"./weight/proj10.pth")
 
     with torch.no_grad():
+        model.eval()
         eval_proj(cfg, model, feature_dict, device, _log)
 
 
