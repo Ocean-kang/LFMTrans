@@ -194,7 +194,6 @@ def knn_weight_matrix_construct_sparse_numpy(
         for j in range(k):
             j_idx = knn_idx[i, j]
             dist = W_full[i, j_idx]
-
             if fn == 'heat_kernel':
                 w = np.exp(- dist**2 / (sigma**2))
             elif fn == 'inv':
@@ -207,6 +206,10 @@ def knn_weight_matrix_construct_sparse_numpy(
             row.append(i)
             col.append(j_idx)
             data.append(w)
+    
+    row = np.array(row, dtype=np.int32)
+    col = np.array(col, dtype=np.int32)
+    data = np.array(data, dtype=np.float64)
 
     W = coo_matrix((data, (row, col)), shape=(n, n))
 

@@ -5,20 +5,20 @@ deice_gpu: 0
 knngraph:
   k: 10
   sigma: 1
-  knn_fn: ip # 'ip' or 'L2'
-  W_full_fn: ip # 'ip' or 'L2'
-  W_fn: raw # 'heat_kernal' or 'inv' or 'raw'
+  knn_fn: L2 # 'ip' or 'L2'
+  W_full_fn: L2 # 'ip' or 'L2'
+  W_fn: heat_kernel # 'heat_kernel' or 'inv' or 'raw'
 
 laplacian_mat:
   k: 130 # K eigenvectors for using in decomposition
 
 fm_retrieval:
-  metric: ip # 'ip' or 'L2'
+  metric: L2 # 'ip' or 'L2'
 
 model:
   text_dimension: 4096
   vision_dimension: 1024
-  nums_epoch: 1000
+  nums_epoch: 10000
   lr_proj: 0.00005
   DINOv2_BACKBONE_SIZE: large # small, base, large, giant
 
@@ -26,7 +26,7 @@ train:
   batchsize: 1
 
 permute:
-  metric: 'ip' # 'ip' or 'L2'
+  metric: 'L2' # 'ip' or 'L2'
 
 loss:
   w_bij: 1.0
