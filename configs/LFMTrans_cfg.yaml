@@ -16,17 +16,18 @@ fm_retrieval:
   metric: L2 # 'ip' or 'L2'
 
 model:
-  text_dimension: 4096
-  vision_dimension: 1024
+  text_dimension: 1024
+  vision_dimension: 1536
   nums_epoch: 10000
   lr_proj: 0.00005
   DINOv2_BACKBONE_SIZE: large # small, base, large, giant
 
 train:
   batchsize: 1
+  type: photo # photo, mask, prototype
 
 permute:
-  metric: 'L2' # 'ip' or 'L2'
+  metric: 'ip' # 'ip' or 'L2'
 
 loss:
   w_bij: 1.0
