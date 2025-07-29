@@ -87,8 +87,6 @@ def select_samples_per_class(features: torch.Tensor,
 
     return selected_features, selected_labels
 
-import torch
-
 def map_indices_to_class_labels(indices: torch.Tensor, block_size: int = 18) -> torch.Tensor:
     """
     Map flat indices (e.g., 0-179) to class IDs based on block boundaries.

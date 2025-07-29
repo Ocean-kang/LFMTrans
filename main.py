@@ -10,7 +10,7 @@ from model.Encoder import LinearProj
 from utils.knngraph import Latent_knn_graph_construct, Latent_knn_graph_construct_numpy
 from utils.LatentFuncitonMap import build_normalized_laplacian_matrix, laplacian_eigendecomposition, laplacian_main_sparse
 from utils.shuffle_utils import shuffle_tensor
-from utils.fmap_retrieval import fmap_retrieval, accrucy_fn, cos_sim_retrieval
+from utils.fmap_retrieval import fmap_retrieval, accrucy_fn, cos_sim_retrieval, deepfmap_retrieval
 from utils.permutation_compute import compute_permutation_matrices
 
 from loss.fmap_loss import SURFMNetLoss
@@ -25,24 +25,30 @@ if __name__ == '__main__':
         cfg_dict = yaml.safe_load(config)
     cfg = edict(cfg_dict)
 
+    # with open('./feature/val/CIFAR-10/vision/dinov2_vit-g14.pt', 'rb') as file:
+    #     feat_v = torch.load(file)
+
+    # with open('./feature/val/CIFAR-10/vision/dinov2_vit-g14.pt', 'rb') as file:
+    #     feat_t = torch.load(file)
+
     with open('./feature/feat_dinov2_patch_cocostuff_L.pkl', 'rb') as file:
         feat_v = pkl.load(file)
 
-    with open('./feature/feat_llama3_cocostuff_S2P0_27_28_29_8_12_26_30.pkl', 'rb') as file:
+    with open('./feature/feat_dinov2_patch_cocostuff_L.pkl', 'rb') as file:
         feat_t = pkl.load(file)
-    # with open('./feature/feat_dinov2_patch_cocostuff_L.pkl', 'rb') as file:
-    #     feat_t = pkl.load(file)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = LinearProj(cfg=cfg)
-    model.load_state_dict(torch.load("./weight/fmap/proj10.pth", map_location=device))
-    with torch.no_grad():
-        model.eval()
-        model = model.to(device)
-        feat_t = feat_t.to(device).float()
-        feat_v = feat_v.to(device).float()
+    # model = LinearProj(cfg=cfg)
+    # model.load_state_dict(torch.load("./weight/fmap/proj10.pth", map_location=device))
+    # with torch.no_grad():
+    #     model.eval()
+    #     model = model.to(device)
+    #     feat_t = feat_t.to(device).float()
+    #     feat_v = feat_v.to(device).float()
 
-        feat_t_trans = model(feat_t)
+    #     feat_t_trans = model(feat_t)
+    feat_t_trans = feat_t.to(device).float()
+    feat_v = feat_v.to(device).float()
 
     # vision
     W_v = Latent_knn_graph_construct_numpy(cfg, feat_v, device, symmetrize=False)
@@ -63,13 +69,13 @@ if __name__ == '__main__':
     # adding batch dimension
     # vision
     feat_v = feat_v.to(device).unsqueeze(0)
-    v_vecs = v_vecs.unsqueeze(0)
-    v_vals = v_vals.unsqueeze(0)
+    v_vecs = v_vecs.to(device).unsqueeze(0)
+    v_vals = v_vals.to(device).unsqueeze(0)
 
     # language
     feat_t_trans = feat_t_trans.float().to(device).unsqueeze(0)
-    t_vecs = t_vecs.unsqueeze(0)
-    t_vals = t_vals.unsqueeze(0)
+    t_vecs = t_vecs.to(device).unsqueeze(0)
+    t_vals = t_vals.to(device).unsqueeze(0)
 
     Pxy, Pyx = compute_permutation_matrices(cfg, feat_x=feat_t_trans, feat_y=feat_v, with_refine='ip')
 
@@ -88,13 +94,16 @@ if __name__ == '__main__':
     loss_fn = proj_loss_sparse_oncefmap(cfg=cfg)
     loss_dict = loss_fn(feat_t_trans, feat_v, t_vals, v_vals, t_vecs, v_vecs, Pxy, Pyx)
 
-    # Cxy = Cxy.squeeze(0)
-    # v_vecs = v_vecs.squeeze(0)
-    # t_vecs = t_vecs.squeeze(0)
-    # csr_index = fmap_retrieval(cfg, Cxy, v_vecs, t_vecs)
+    Cxy = Cxy.squeeze(0)
+    v_vecs = v_vecs.squeeze(0)
+    t_vecs = t_vecs.squeeze(0)
+    feat_t_trans = feat_t_trans.squeeze(0)
+    feat_v = feat_v.squeeze(0)
 
-    # accurcy = accrucy_fn(shuffle_idx, csr_index)
+    csr_index = fmap_retrieval(cfg, Cxy, v_vecs, t_vecs)
+    tmp_index = deepfmap_retrieval(cfg, Cxy, v_vecs, t_vecs, feat_v, feat_t_trans)
 
-    # print(f't2v: {csr_t2v} -- v2t: {csr_v2t} -- accuracy: {accurcy}')
+    accurcy = accrucy_fn(shuffle_idx, tmp_index)
+
+    print(f't2v: {csr_t2v} -- v2t: {csr_v2t} -- accuracy: {accurcy}')
     (W_lap, W_orth, W_bij, W_align, W_ot) = (cfg.loss.w_lap, cfg.loss.w_orth, cfg.loss.w_bij, cfg.loss.w_align, cfg.loss.w_ot)
-    breakpoint()
