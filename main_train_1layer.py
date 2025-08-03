@@ -10,14 +10,12 @@ import numpy as np
 from sacred import Experiment
 from easydict import EasyDict as edict
 
-from model.Encoder import LinearProjText, Translator
-from loss.proj_loss import proj_loss_sparse_oncefmap
+from model.Encoder import LinearProjText
 from loss.gromov_loss import SGW
 from utils.knngraph import Latent_knn_graph_construct_numpy
 from utils.LatentFuncitonMap import laplacian_main_sparse
 from utils.shuffle_utils import shuffle_tensor, select_samples_per_class, map_indices_to_class_labels, sample_features_per_class_coco
-from utils.fmap_retrieval import deepfmap_retrieval, accrucy_fn, cos_sim_retrieval
-from utils.permutation_compute import compute_permutation_matrices
+from utils.fmap_retrieval import deepfmap_retrieval, fmap_retrieval, accrucy_fn, cos_sim_retrieval
 from model.fmap_network import RegularizedFMNet
 
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -34,7 +32,7 @@ def create_basic_stream_logger(format):
     return logger
 
 ex.logger = create_basic_stream_logger('%(levelname)s - %(name)s - %(message)s')
-ex.add_config('./configs/LFMTrans_cfg_2layers.yaml')
+ex.add_config('./configs/LFMTrans_cfg_1layer.yaml')
 
 cudnn.enabled = True
 cudnn.benchmark = False
@@ -63,15 +61,44 @@ def train_projector_oncefmap(cfg, model, feature_dict, criterion, device, _log):
             feat_language = feature_dict["cifar-10"]["train"]["all-Roberta-large-v1"].to(device).float()
             feat_vision = feature_dict["cifar-10"]["train"]["dinov2"].to(device).float()
             feat_labels = feature_dict["cifar-10"]["train"]["labels"].to(device).float()
+            n_cls, n_prompt, dimension = feat_language.shape
+            feat_language = feat_language.view(-1, cfg.model.text_dimension) # [n_cls, n_prompt, text_dimension] -> [180, text_dimension]
+            feat_vision, feat_labels = select_samples_per_class(feat_vision, feat_labels, n_cls, n_prompt, cfg.seed) # [180, 1024], [180]
+
         elif cfg.train.dataset == 'CIFAR-100':
             feat_language = feature_dict["cifar-100"]["test"]["all-mpnet-base-v2"].to(device).float()
             feat_vision = feature_dict["cifar-100"]["test"]["dinov2"].to(device).float()
             feat_labels = feature_dict["cifar-100"]["test"]["labels"].to(device).float()
+            n_cls, n_prompt, dimension = feat_language.shape
+            feat_language = feat_language.view(-1, cfg.model.text_dimension) # [n_cls, n_prompt, text_dimension] -> [180, text_dimension]
+            feat_vision, feat_labels = select_samples_per_class(feat_vision, feat_labels, n_cls, n_prompt, cfg.seed) # [180, 1024], [180]
 
-        n_cls, n_prompt, dimension = feat_language.shape
-        feat_language = feat_language.view(-1, cfg.model.text_dimension) # [10, 18, 1024] -> [180, 1024]
-        feat_vision, feat_labels = select_samples_per_class(feat_vision, feat_labels, n_cls, n_prompt, cfg.seed) # [180, 1024], [180]
-    
+        elif cfg.train.dataset == 'cocostuff':
+            feat_llama3_train = feature_dict["llama3_synonym_features"]["llama3_coco"].to('cpu').float()
+            feat_dinov2_train = feature_dict["dinov2_synonym_features"]["dinov2_coco"].to('cpu').float()
+
+            # Find zero embeddings
+            if (feat_dinov2_train.sum(-1) == 0).sum() > 0:
+                for i in range(len(feat_dinov2_train)):
+                    if (feat_dinov2_train[i].sum(-1) == 0).sum() > 0:
+                        zero_idx = torch.where((feat_dinov2_train[i].sum(-1) == 0))[0]
+                        nonzero_idx = torch.where((feat_dinov2_train[i].sum(-1) != 0))[0]
+                        pad_idx = np.array(random.choices(list(nonzero_idx.numpy()), k=len(zero_idx)))
+                        feat_dinov2_train[i][zero_idx] = feat_dinov2_train[i][pad_idx]
+
+            if (feat_llama3_train.sum(-1) == 0).sum() > 0:
+                for i in range(len(feat_llama3_train)):
+                    if (feat_llama3_train[i].sum(-1) == 0).sum() > 0:
+                        zero_idx = torch.where((feat_llama3_train[i].sum(-1) == 0))[0]
+                        nonzero_idx = torch.where((feat_llama3_train[i].sum(-1) != 0))[0]
+                        pad_idx = np.array(random.choices(list(nonzero_idx.numpy()), k=len(zero_idx)))
+                        feat_llama3_train[i][zero_idx] = feat_llama3_train[i][pad_idx]
+            feat_language = feat_llama3_train.to(device).float()
+            feat_vision = feat_dinov2_train.to(device).float()
+            
+            feat_vision, feat_labels = sample_features_per_class_coco(feat_vision, 10, cfg.seed)
+            feat_language, feat_labels_language = sample_features_per_class_coco(feat_language, 10, cfg.seed)
+
     # Load model
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -98,106 +125,7 @@ def train_projector_oncefmap(cfg, model, feature_dict, criterion, device, _log):
     return None
 
 @ex.capture
-def train_translator_oncefmap(cfg, model_proj, model, feature_dict, criterion, device, _log):
-    """
-    Train theTranlator.
-
-    Args:
-        model: the LinearProj model
-        feature_dict: feature_dict
-        device: 'cuda' or 'cpu'
-    """
-    num_epochs = cfg.model.nums_epoch_translator
-    lr = cfg.model.lr_translator
-    TRAINTYPE = cfg.train.type
-
-    # Load features
-    if TRAINTYPE == 'prototype':
-        feat_language = feature_dict["llama3_features"]["llama3_coco"].to(device).float()
-        feat_vision = feature_dict["dinov2_features"]["dinov2_coco"].to(device).float()
-    elif TRAINTYPE == 'photo':
-        if cfg.train.dataset == 'CIFAR-10':
-            feat_language = feature_dict["cifar-10"]["train"]["all-Roberta-large-v1"].to(device).float()
-            feat_vision = feature_dict["cifar-10"]["train"]["dinov2"].to(device).float()
-            feat_labels = feature_dict["cifar-10"]["train"]["labels"].to(device).float()
-        elif cfg.train.dataset == 'CIFAR-100':
-            feat_language = feature_dict["cifar-100"]["test"]["all-mpnet-base-v2"].to(device).float()
-            feat_vision = feature_dict["cifar-100"]["test"]["dinov2"].to(device).float()
-            feat_labels = feature_dict["cifar-100"]["test"]["labels"].to(device).float()
-
-        n_cls, n_prompt, dimension = feat_language.shape
-        feat_language = feat_language.view(-1, cfg.model.text_dimension) # [10, 18, 1024] -> [180, 1024]
-        feat_vision, feat_labels = select_samples_per_class(feat_vision, feat_labels, n_cls, n_prompt, cfg.seed) # [180, 1024], [180]
-
-    # project into same dimension
-    with torch.no_grad():
-        model_proj.eval()
-        feat_language = model_proj(feat_language)
-
-
-    # adding batch dimension
-    if cfg.train.batchsize == 1:
-        feat_language = feat_language.unsqueeze(0)
-        feat_vision = feat_vision.unsqueeze(0)
-    
-    # Load model
-    model = model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    model.train()
-
-    # compute once eigenvecs and eigenvals in each multimodels
-    # vision
-    W_v = Latent_knn_graph_construct_numpy(cfg, feat_vision, device, symmetrize=True)
-    v_vecs, v_vals = laplacian_main_sparse(W_v, cfg.laplacian_mat.k)
-
-    #language
-    W_t = Latent_knn_graph_construct_numpy(cfg, feat_language, device, symmetrize=True)
-    t_vecs, t_vals = laplacian_main_sparse(W_t, cfg.laplacian_mat.k)
-
-    # cpu -> gpu and np.arrary -> torch.tensor and adding batchsize
-    # vision
-    v_vecs = torch.from_numpy(v_vecs).to(device).float().unsqueeze(0)
-    v_vals = torch.from_numpy(v_vals).to(device).float().unsqueeze(0)
-    # language
-    t_vecs = torch.from_numpy(t_vecs).to(device).float().unsqueeze(0)
-    t_vals = torch.from_numpy(t_vals).to(device).float().unsqueeze(0)
-
-    total_loss = 0.0
-    for epoch in range(num_epochs):
-
-        x = feat_language.to(device)  # [B, text_dimension]
-        y = feat_vision.to(device)  # [B, vision_dimension]
-
-        optimizer.zero_grad()
-        output_x = model(x)  # [B, vision_dimension]
-        output_y = model(y)  # [B, vision_dimension]
-
-        # compute permutation
-        Pxy, Pyx = compute_permutation_matrices(cfg, output_x, output_y)
-
-        # Loss
-        loss_dict = criterion(output_x, output_y, t_vals, v_vals, t_vecs, v_vecs, Pxy, Pyx)
-
-        # Weight_init
-        (W_lap, W_orth, W_bij, W_align, W_ot) = (cfg.loss.w_lap, cfg.loss.w_orth, cfg.loss.w_bij, cfg.loss.w_align, 1.0)
-
-        loss_fm = loss_dict['l_lap'] * W_lap + loss_dict['l_orth'] * W_orth + loss_dict['l_bij'] * W_bij
-        loss_align = loss_dict['l_align'] * W_align
-        loss_ot = loss_dict['l_ot'] * W_ot
-        loss = loss_fm + loss_align + loss_ot
-        
-        loss.backward()
-        optimizer.step()
-
-        total_loss += loss.item()
-
-        _log.info(f"Epoch {epoch+1}/{num_epochs} -Fmap/Align/Ot: {loss_fm:.3f}/{loss_align:.3f}/{loss_ot:.3f} TotalLoss: {loss:.4f}")
-    _log.info(f"Train Finished - Avg Loss: {total_loss / num_epochs:.4f}")
-
-    return None
-
-@ex.capture
-def eval_proj_translator(cfg, model_1, model_2, feature_dict, device, _log):
+def eval_proj(cfg, model_1, feature_dict, device, _log):
 
     TRAINTYPE = cfg.train.type
     # Load features
@@ -206,8 +134,8 @@ def eval_proj_translator(cfg, model_1, model_2, feature_dict, device, _log):
         feat_vision = feature_dict["dinov2_features"]["dinov2_coco"].to(device).float()
 
         # projector and translator
-        feat_v = model_2(feat_vision)
-        feat_t_trans = model_2(model_1(feat_language))
+        feat_v = feat_vision
+        feat_t_trans = model_1(feat_language)
 
         csr_accuracy_t2v = cos_sim_retrieval(feat_t_trans, feat_v)
         csr_accuracy_v2t = cos_sim_retrieval(feat_v, feat_t_trans)
@@ -271,14 +199,13 @@ def eval_proj_translator(cfg, model_1, model_2, feature_dict, device, _log):
             feat_language = feature_dict["cifar-10"]["train"]["all-Roberta-large-v1"].to(device).float()
             feat_vision = feature_dict["cifar-10"]["train"]["dinov2"].to(device).float()
             feat_labels = feature_dict["cifar-10"]["train"]["labels"].to(device).float()
-
             n_cls, n_prompt, dimension = feat_language.shape
-            feat_language = feat_language.view(-1, cfg.model.text_dimension) # [10, 18, 1024] -> [180, 1024]
-            feat_vision, feat_labels = select_samples_per_class(feat_vision, feat_labels, n_cls, n_prompt, cfg.seed)
+            feat_language = feat_language.view(-1, cfg.model.text_dimension) # [n_cls, n_prompt, text_dimension] -> [180, text_dimension]
+            feat_vision, feat_labels = select_samples_per_class(feat_vision, feat_labels, n_cls, n_prompt, cfg.seed) # [180, 1024], [180]
 
             # projector and translator
-            feat_v = model_2(feat_vision)
-            feat_t_trans = model_2(model_1(feat_language))
+            feat_v = feat_vision
+            feat_t_trans = model_1(feat_language)
 
             # compute once eigenvecs and eigenvals in each multimodels
             # vision
@@ -317,16 +244,14 @@ def eval_proj_translator(cfg, model_1, model_2, feature_dict, device, _log):
             t_vecs = t_vecs.squeeze(0)
             feat_t_trans = feat_t_trans.squeeze(0)
             feat_v = feat_v.squeeze(0)
-
             # Cxy
             csr_index_Cxy = deepfmap_retrieval(cfg, Cxy, v_vecs, t_vecs, feat_v, feat_t_trans)
             # Cyx
             csr_index_Cyx = deepfmap_retrieval(cfg, Cyx, t_vecs, v_vecs, feat_t_trans, feat_v)
-
             # map indexes to classes
-            csr_index_Cxy = map_indices_to_class_labels(csr_index_Cxy, 18)
-            csr_index_Cyx = map_indices_to_class_labels(csr_index_Cyx, 18)
-
+            csr_index_Cxy = map_indices_to_class_labels(csr_index_Cxy, n_prompt)
+            csr_index_Cyx = map_indices_to_class_labels(csr_index_Cyx, n_prompt)
+            
             accurcy_Cxy = accrucy_fn(feat_labels, csr_index_Cxy)
             accurcy_Cyx = accrucy_fn(feat_labels, csr_index_Cyx)
 
@@ -337,14 +262,13 @@ def eval_proj_translator(cfg, model_1, model_2, feature_dict, device, _log):
             feat_language = feature_dict["cifar-100"]["test"]["all-mpnet-base-v2"].to(device).float()
             feat_vision = feature_dict["cifar-100"]["test"]["dinov2"].to(device).float()
             feat_labels = feature_dict["cifar-100"]["test"]["labels"].to(device).float()
-
             n_cls, n_prompt, dimension = feat_language.shape
-            feat_language = feat_language.view(-1, cfg.model.text_dimension) # [10, 18, 1024] -> [180, 1024]
-            feat_vision, feat_labels = select_samples_per_class(feat_vision, feat_labels, n_cls, n_prompt, cfg.seed)
+            feat_language = feat_language.view(-1, cfg.model.text_dimension) # [n_cls, n_prompt, text_dimension] -> [180, text_dimension]
+            feat_vision, feat_labels = select_samples_per_class(feat_vision, feat_labels, n_cls, n_prompt, cfg.seed) # [180, 1024], [180]
 
             # projector and translator
-            feat_v = model_2(feat_vision)
-            feat_t_trans = model_2(model_1(feat_language))
+            feat_v = feat_vision
+            feat_t_trans = model_1(feat_language)
 
             # compute once eigenvecs and eigenvals in each multimodels
             # vision
@@ -383,16 +307,14 @@ def eval_proj_translator(cfg, model_1, model_2, feature_dict, device, _log):
             t_vecs = t_vecs.squeeze(0)
             feat_t_trans = feat_t_trans.squeeze(0)
             feat_v = feat_v.squeeze(0)
-
             # Cxy
             csr_index_Cxy = deepfmap_retrieval(cfg, Cxy, v_vecs, t_vecs, feat_v, feat_t_trans)
             # Cyx
             csr_index_Cyx = deepfmap_retrieval(cfg, Cyx, t_vecs, v_vecs, feat_t_trans, feat_v)
-
             # map indexes to classes
-            csr_index_Cxy = map_indices_to_class_labels(csr_index_Cxy, 18)
-            csr_index_Cyx = map_indices_to_class_labels(csr_index_Cyx, 18)
-
+            csr_index_Cxy = map_indices_to_class_labels(csr_index_Cxy, n_prompt)
+            csr_index_Cyx = map_indices_to_class_labels(csr_index_Cyx, n_prompt)
+            
             accurcy_Cxy = accrucy_fn(feat_labels, csr_index_Cxy)
             accurcy_Cyx = accrucy_fn(feat_labels, csr_index_Cyx)
 
@@ -428,8 +350,8 @@ def eval_proj_translator(cfg, model_1, model_2, feature_dict, device, _log):
             feat_labels = feat_labels.to(device)
 
             # projector and translator
-            feat_v = model_2(feat_vision)
-            feat_t_trans = model_2(model_1(feat_language))
+            feat_v = feat_vision
+            feat_t_trans = model_1(feat_language)
 
             # compute once eigenvecs and eigenvals in each multimodels
             # vision
@@ -468,16 +390,14 @@ def eval_proj_translator(cfg, model_1, model_2, feature_dict, device, _log):
             t_vecs = t_vecs.squeeze(0)
             feat_t_trans = feat_t_trans.squeeze(0)
             feat_v = feat_v.squeeze(0)
-
             # Cxy
             csr_index_Cxy = deepfmap_retrieval(cfg, Cxy, v_vecs, t_vecs, feat_v, feat_t_trans)
             # Cyx
             csr_index_Cyx = deepfmap_retrieval(cfg, Cyx, t_vecs, v_vecs, feat_t_trans, feat_v)
-
             # map indexes to classes
             csr_index_Cxy = map_indices_to_class_labels(csr_index_Cxy, n_prompt)
             csr_index_Cyx = map_indices_to_class_labels(csr_index_Cyx, n_prompt)
-
+            
             accurcy_Cxy = accrucy_fn(feat_labels, csr_index_Cxy)
             accurcy_Cyx = accrucy_fn(feat_labels, csr_index_Cyx)
 
@@ -578,9 +498,7 @@ def main(_run, _log):
         }
     }
     
-    
     model_proj = LinearProjText(cfg=cfg)
-    model_translator = Translator(cfg=cfg)
 
     # --dense matrix--
     # criterion = proj_loss(cfg=cfg)
@@ -588,22 +506,17 @@ def main(_run, _log):
     # criterion = proj_loss_sparse(cfg=cfg)
     # --sparse matrix once enginvecs and enginvals--
     criterion_proj = SGW(cfg=cfg)
-    criterion_trans = proj_loss_sparse_oncefmap(cfg=cfg)
 
     # train_proj(cfg, model, feature_dict, criterion, device, _log)
     train_projector_oncefmap(cfg, model_proj, feature_dict, criterion_proj, device, _log)
-    train_translator_oncefmap(cfg, model_proj, model_translator, feature_dict, criterion_trans, device, _log)
 
 
     if os.path.isdir('./weight'):
-        torch.save(model_proj.state_dict(), f"./weight/projector{cfg.save}.pth")
-        torch.save(model_translator.state_dict(), f"./weight/translator{cfg.save}.pth")
+        torch.save(model_proj.state_dict(), f"./weight/projector_1layer{cfg.save}.pth")
     else:
         os.makedirs('./weight', exist_ok=True)
-        torch.save(model_proj.state_dict(), f"./weight/projector{cfg.save}.pth")
-        torch.save(model_translator.state_dict(), f"./weight/translator{cfg.save}.pth")
+        torch.save(model_proj.state_dict(), f"./weight/projector_1layer{cfg.save}.pth")
 
     with torch.no_grad():
         model_proj.eval()
-        model_translator.eval()
-        eval_proj_translator(cfg, model_proj, model_translator, feature_dict, device, _log)
+        eval_proj(cfg, model_proj, feature_dict, device, _log)

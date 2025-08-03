@@ -15,13 +15,14 @@ from utils.permutation_compute import compute_permutation_matrices
 
 from loss.fmap_loss import SURFMNetLoss
 from loss.proj_loss import proj_loss_sparse_oncefmap
+from loss.gromov_loss import SGW
 
 
 
 if __name__ == '__main__':
 
     # Loading configs
-    with open('./configs/LFMTrans_cfg.yaml','r') as config:
+    with open('./configs/LFMTrans_cfg_2layers.yaml','r') as config:
         cfg_dict = yaml.safe_load(config)
     cfg = edict(cfg_dict)
 
@@ -34,76 +35,82 @@ if __name__ == '__main__':
     with open('./feature/feat_dinov2_patch_cocostuff_L.pkl', 'rb') as file:
         feat_v = pkl.load(file)
 
-    with open('./feature/feat_dinov2_patch_cocostuff_L.pkl', 'rb') as file:
+    # with open('./feature/feat_dinov2_patch_cocostuff_L.pkl', 'rb') as file:
+    #     feat_t = pkl.load(file)
+    with open(f'./feature/feat_llama3_cocostuff_S2P0_27_28_29_8_12_26_30.pkl', 'rb') as file:
         feat_t = pkl.load(file)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # model = LinearProj(cfg=cfg)
-    # model.load_state_dict(torch.load("./weight/fmap/proj10.pth", map_location=device))
-    # with torch.no_grad():
-    #     model.eval()
-    #     model = model.to(device)
-    #     feat_t = feat_t.to(device).float()
-    #     feat_v = feat_v.to(device).float()
+    model = LinearProj(cfg=cfg)
+    model.load_state_dict(torch.load("./weight/fmap/proj10.pth", map_location=device))
+    with torch.no_grad():
+        model.eval()
+        model = model.to(device)
+        feat_t = feat_t.to(device).float()
+        feat_v = feat_v.to(device).float()
 
-    #     feat_t_trans = model(feat_t)
+        feat_t_trans = model(feat_t)
     feat_t_trans = feat_t.to(device).float()
-    feat_v = feat_v.to(device).float()
+    # feat_v = feat_v.to(device).float()
 
-    # vision
-    W_v = Latent_knn_graph_construct_numpy(cfg, feat_v, device, symmetrize=False)
-    v_vecs, v_vals = laplacian_main_sparse(W_v, cfg.laplacian_mat.k)
+    loss_proj = SGW(cfg=cfg)
+    res = loss_proj(feat_t_trans, feat_t)
+    breakpoint()
 
-    #language
-    W_t = Latent_knn_graph_construct_numpy(cfg, feat_t_trans, device, symmetrize=False)
-    t_vecs, t_vals = laplacian_main_sparse(W_t, cfg.laplacian_mat.k)
+    # # vision
+    # W_v = Latent_knn_graph_construct_numpy(cfg, feat_v, device, symmetrize=False)
+    # v_vecs, v_vals = laplacian_main_sparse(W_v, cfg.laplacian_mat.k)
 
-    # cpu -> gpu and np.arrary -> torch.tensor
-    # vision
-    v_vecs = torch.from_numpy(v_vecs).to(device).float()
-    v_vals = torch.from_numpy(v_vals).to(device).float()
-    # language
-    t_vecs = torch.from_numpy(t_vecs).to(device).float()
-    t_vals = torch.from_numpy(t_vals).to(device).float()
+    # #language
+    # W_t = Latent_knn_graph_construct_numpy(cfg, feat_t_trans, device, symmetrize=False)
+    # t_vecs, t_vals = laplacian_main_sparse(W_t, cfg.laplacian_mat.k)
 
-    # adding batch dimension
-    # vision
-    feat_v = feat_v.to(device).unsqueeze(0)
-    v_vecs = v_vecs.to(device).unsqueeze(0)
-    v_vals = v_vals.to(device).unsqueeze(0)
+    # # cpu -> gpu and np.arrary -> torch.tensor
+    # # vision
+    # v_vecs = torch.from_numpy(v_vecs).to(device).float()
+    # v_vals = torch.from_numpy(v_vals).to(device).float()
+    # # language
+    # t_vecs = torch.from_numpy(t_vecs).to(device).float()
+    # t_vals = torch.from_numpy(t_vals).to(device).float()
 
-    # language
-    feat_t_trans = feat_t_trans.float().to(device).unsqueeze(0)
-    t_vecs = t_vecs.to(device).unsqueeze(0)
-    t_vals = t_vals.to(device).unsqueeze(0)
+    # # adding batch dimension
+    # # vision
+    # feat_v = feat_v.to(device).unsqueeze(0)
+    # v_vecs = v_vecs.to(device).unsqueeze(0)
+    # v_vals = v_vals.to(device).unsqueeze(0)
 
-    Pxy, Pyx = compute_permutation_matrices(cfg, feat_x=feat_t_trans, feat_y=feat_v, with_refine='ip')
+    # # language
+    # feat_t_trans = feat_t_trans.float().to(device).unsqueeze(0)
+    # t_vecs = t_vecs.to(device).unsqueeze(0)
+    # t_vals = t_vals.to(device).unsqueeze(0)
 
-    csr_t2v = cos_sim_retrieval(feat_t_trans.squeeze(0), feat_v.squeeze(0))
-    csr_v2t = cos_sim_retrieval(feat_v.squeeze(0), feat_t_trans.squeeze(0))
+    # Pxy, Pyx = compute_permutation_matrices(cfg, feat_x=feat_t_trans, feat_y=feat_v, with_refine='ip')
 
-    # shuffle vision side
-    feat_v_shuffled, shuffle_idx = shuffle_tensor(cfg, device, feat_v)
-    shuffle_idx = shuffle_idx.squeeze(0)
+    # csr_t2v = cos_sim_retrieval(feat_t_trans.squeeze(0), feat_v.squeeze(0))
+    # csr_v2t = cos_sim_retrieval(feat_v.squeeze(0), feat_t_trans.squeeze(0))
 
-    # build regularized_funciton_map model
-    fm_net = RegularizedFMNet(bidirectional=True)
-    Cxy, Cyx = fm_net(feat_v_shuffled, feat_t_trans, v_vals, t_vals, v_vecs, t_vecs)
+    # # shuffle vision side
+    # feat_v_shuffled, shuffle_idx = shuffle_tensor(cfg, device, feat_v)
+    # shuffle_idx = shuffle_idx.squeeze(0)
 
-    # general loss
-    loss_fn = proj_loss_sparse_oncefmap(cfg=cfg)
-    loss_dict = loss_fn(feat_t_trans, feat_v, t_vals, v_vals, t_vecs, v_vecs, Pxy, Pyx)
+    # # build regularized_funciton_map model
+    # fm_net = RegularizedFMNet(bidirectional=True)
+    # Cxy, Cyx = fm_net(feat_v_shuffled, feat_t_trans, v_vals, t_vals, v_vecs, t_vecs)
 
-    Cxy = Cxy.squeeze(0)
-    v_vecs = v_vecs.squeeze(0)
-    t_vecs = t_vecs.squeeze(0)
-    feat_t_trans = feat_t_trans.squeeze(0)
-    feat_v = feat_v.squeeze(0)
+    # # general loss
+    # loss_fn = proj_loss_sparse_oncefmap(cfg=cfg)
+    # loss_dict = loss_fn(feat_t_trans, feat_v, t_vals, v_vals, t_vecs, v_vecs, Pxy, Pyx)
 
-    csr_index = fmap_retrieval(cfg, Cxy, v_vecs, t_vecs)
-    tmp_index = deepfmap_retrieval(cfg, Cxy, v_vecs, t_vecs, feat_v, feat_t_trans)
+    # Cxy = Cxy.squeeze(0)
+    # v_vecs = v_vecs.squeeze(0)
+    # t_vecs = t_vecs.squeeze(0)
+    # feat_t_trans = feat_t_trans.squeeze(0)
+    # feat_v = feat_v.squeeze(0)
 
-    accurcy = accrucy_fn(shuffle_idx, tmp_index)
+    # csr_index = fmap_retrieval(cfg, Cxy, v_vecs, t_vecs)
+    # tmp_index = deepfmap_retrieval(cfg, Cxy, v_vecs, t_vecs, feat_v, feat_t_trans)
 
-    print(f't2v: {csr_t2v} -- v2t: {csr_v2t} -- accuracy: {accurcy}')
-    (W_lap, W_orth, W_bij, W_align, W_ot) = (cfg.loss.w_lap, cfg.loss.w_orth, cfg.loss.w_bij, cfg.loss.w_align, cfg.loss.w_ot)
+    # accurcy = accrucy_fn(shuffle_idx, tmp_index)
+
+    # print(f't2v: {csr_t2v} -- v2t: {csr_v2t} -- accuracy: {accurcy}')
+    # (W_lap, W_orth, W_bij, W_align, W_ot) = (cfg.loss.w_lap, cfg.loss.w_orth, cfg.loss.w_bij, cfg.loss.w_align, cfg.loss.w_ot)

@@ -1,6 +1,7 @@
 seed: 2025
 
 deice_gpu: 0
+save: 5
 
 knngraph:
   k: 20
@@ -16,16 +17,18 @@ fm_retrieval:
   metric: L2 # 'ip' or 'L2'
 
 model:
-  text_dimension: 1024
-  vision_dimension: 1536
-  nums_epoch: 10000
-  lr_proj: 0.00005
+  text_dimension: 4096
+  vision_dimension: 1024
+  nums_epoch_proj: 100000
+
+  lr_projector: 0.00005
   DINOv2_BACKBONE_SIZE: large # small, base, large, giant
 
 train:
   batchsize: 1
+  samples: 10
   type: photo # photo, mask, prototype
-  dataset: CIFAR-100 # cocostuff, CIFAR-10, CIFAR-100
+  dataset: cocostuff # cocostuff, CIFAR-10, CIFAR-100
 
 permute:
   metric: 'L2' # 'ip' or 'L2'
@@ -38,3 +41,6 @@ loss:
   w_ot: 100.0
   L_ot: 200
   bidirectional: false
+  W_SGW_lossweight: 100.0
+  W_SGW_L: 1000
+  SGW_bidirectional: false

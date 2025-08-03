@@ -104,12 +104,17 @@ def train_proj_oncefmap(cfg, model, feature_dict, criterion, device, _log):
         feat_language = feature_dict["llama3_features"]["llama3_coco"].to(device).float()
         feat_vision = feature_dict["dinov2_features"]["dinov2_coco"].to(device).float()
     elif TRAINTYPE == 'photo':
-        feat_language = feature_dict["cifar-10"]["train"]["all-Roberta-large-v1"].to(device).float()
-        feat_vision = feature_dict["cifar-10"]["train"]["dinov2"].to(device).float()
-        feat_labels = feature_dict["cifar-10"]["train"]["labels"].to(device).float()
+        if cfg.train.dataset == 'CIFAR-10':
+            feat_language = feature_dict["cifar-10"]["train"]["all-Roberta-large-v1"].to(device).float()
+            feat_vision = feature_dict["cifar-10"]["train"]["dinov2"].to(device).float()
+            feat_labels = feature_dict["cifar-10"]["train"]["labels"].to(device).float()
+        elif cfg.train.dataset == 'CIFAR-100':
+            feat_language = feature_dict["cifar-100"]["test"]["all-mpnet-base-v2"].to(device).float()
+            feat_vision = feature_dict["cifar-100"]["test"]["dinov2"].to(device).float()
+            feat_labels = feature_dict["cifar-100"]["test"]["labels"].to(device).float()
 
         n_cls, n_prompt, dimension = feat_language.shape
-        feat_language = feat_language.view(-1, 1024) # [10, 18, 1024] -> [180, 1024]
+        feat_language = feat_language.view(-1, cfg.model.text_dimension) # [10, 18, 1024] -> [180, 1024]
         feat_vision, feat_labels = select_samples_per_class(feat_vision, feat_labels, n_cls, n_prompt, cfg.seed) # [180, 1024], [180]
 
     # adding batch dimension
@@ -242,11 +247,17 @@ def eval_proj(cfg, model, feature_dict, device, _log):
         _log.info(f"Train Finished - prototype - Avg accrucy: {accrucy:.4f} - CSR_t2v: {csr_accuracy_t2v:.4f} - CSR_v2t: {csr_accuracy_v2t:.4f}")
 
     elif TRAINTYPE == 'photo':
-        feat_language = feature_dict["cifar-10"]["test"]["all-Roberta-large-v1"].to(device).float()
-        feat_vision = feature_dict["cifar-10"]["test"]["dinov2"].to(device).float()
-        feat_labels = feature_dict["cifar-10"]["test"]["labels"].to(device).float()
+        if cfg.train.dataset == 'CIFAR-10':
+            feat_language = feature_dict["cifar-10"]["train"]["all-Roberta-large-v1"].to(device).float()
+            feat_vision = feature_dict["cifar-10"]["train"]["dinov2"].to(device).float()
+            feat_labels = feature_dict["cifar-10"]["train"]["labels"].to(device).float()
+        elif cfg.train.dataset == 'CIFAR-100':
+            feat_language = feature_dict["cifar-100"]["test"]["all-mpnet-base-v2"].to(device).float()
+            feat_vision = feature_dict["cifar-100"]["test"]["dinov2"].to(device).float()
+            feat_labels = feature_dict["cifar-100"]["test"]["labels"].to(device).float()
+
         n_cls, n_prompt, dimension = feat_language.shape
-        feat_language = feat_language.view(-1, 1024) # [10, 18, 1024] -> [180, 1024]
+        feat_language = feat_language.view(-1, cfg.model.text_dimension) # [10, 18, 1024] -> [180, 1024]
         feat_vision, feat_labels = select_samples_per_class(feat_vision, feat_labels, n_cls, n_prompt, cfg.seed)
 
         feat_v = feat_vision
@@ -283,10 +294,13 @@ def eval_proj(cfg, model, feature_dict, device, _log):
         # build regularized_funciton_map model
         fm_net = RegularizedFMNet(bidirectional=True)
         Cxy, Cyx = fm_net(feat_v, feat_t_trans, v_vals, t_vals, v_vecs, t_vecs)
+        
         Cxy = Cxy.squeeze(0)
         Cyx = Cyx.squeeze(0)
         v_vecs = v_vecs.squeeze(0)
         t_vecs = t_vecs.squeeze(0)
+        feat_v = feat_v.squeeze(0)
+        feat_t_trans = feat_t_trans.squeeze(0)
 
         # Cxy
         csr_index_Cxy = deepfmap_retrieval(cfg, Cxy, v_vecs, t_vecs, feat_v, feat_t_trans)
@@ -387,6 +401,13 @@ def main(_run, _log):
                 "labels": torch.load(TRAINSETPTH + '/CIFAR-10/labels.pt'),
                 "prototype": torch.load(TRAINSETPTH + '/CIFAR-10/vision/Prototype_dinov2_vit-g14.pt')
             }
+        },
+        "cifar-100":{
+            "test":{
+                "dinov2": torch.load(TESTSETPATH + '/CIFAR-100/vision/dinov2_vit-g14.pt'),
+                "all-mpnet-base-v2": torch.load(TESTSETPATH + '/CIFAR-100/language/sentencet_all-mpnet-base-v2.pt'),
+                "labels": torch.load(TESTSETPATH + '/CIFAR-100/labels.pt')
+            }
         }
     }
     
@@ -405,10 +426,10 @@ def main(_run, _log):
 
 
     if os.path.isdir('./weight'):
-        torch.save(model.state_dict(), f"./weight/proj24.pth")
+        torch.save(model.state_dict(), f"./weight/proj25.pth")
     else:
         os.makedirs('./weight', exist_ok=True)
-        torch.save(model.state_dict(), f"./weight/proj24.pth")
+        torch.save(model.state_dict(), f"./weight/proj25.pth")
 
     with torch.no_grad():
         model.eval()

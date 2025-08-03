@@ -1,14 +1,14 @@
 seed: 2025
 
 deice_gpu: 0
-save: 5
+save: 10
 
 knngraph:
   k: 20
   sigma: 1
   knn_fn: L2 # 'ip' or 'L2'
   W_full_fn: L2 # 'ip' or 'L2'
-  W_fn: heat_kernel # 'heat_kernel' or 'inv' or 'raw'
+  W_fn: raw # 'heat_kernel' or 'inv' or 'raw'
 
 laplacian_mat:
   k: 130 # K eigenvectors for using in decomposition
@@ -17,19 +17,20 @@ fm_retrieval:
   metric: L2 # 'ip' or 'L2'
 
 model:
-  text_dimension: 4096
-  vision_dimension: 1024
+  text_dimension: 768
+  vision_dimension: 1536
   nums_epoch_proj: 50000
   nums_epoch_translator: 50000
 
   lr_projector: 0.00005
-  lr_translator: 0.00005
+  lr_translator: 0.00001
   DINOv2_BACKBONE_SIZE: large # small, base, large, giant
 
 train:
   batchsize: 1
-  type: prototype # photo, mask, prototype
-  dataset: CIFIAR-100 # cocostuff, CIFIAR-10, CIFIAR-100
+  samples: 10
+  type: photo # photo, mask, prototype
+  dataset: CIFAR-100 # cocostuff, CIFAR-10, CIFAR-100
 
 permute:
   metric: 'L2' # 'ip' or 'L2'
@@ -42,6 +43,6 @@ loss:
   w_ot: 100.0
   L_ot: 200
   bidirectional: false
-  W_SGW_lossweight: 1000000000.0
+  W_SGW_lossweight: 10000000.0
   W_SGW_L: 1000
   SGW_bidirectional: false

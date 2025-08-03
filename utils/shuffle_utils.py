@@ -100,3 +100,74 @@ def map_indices_to_class_labels(indices: torch.Tensor, block_size: int = 18) -> 
     """
     return indices // block_size
 
+def select_samples_per_class_mean(features: torch.Tensor, 
+                              labels: torch.Tensor, 
+                              num_classes: int = 10, 
+                              n_samples_per_class: int = 18, 
+                              seed: int = None,
+                              return_class_mean: bool = False):
+    """
+    Randomly select a fixed number of samples from each class, and optionally compute class-wise mean features.
+
+    Returns:
+        selected_features (torch.Tensor): [num_classes * n_samples_per_class, D]
+        selected_labels (torch.Tensor): [num_classes * n_samples_per_class]
+        class_mean_features (torch.Tensor, optional): [num_classes, D] if return_class_mean is True
+    """
+    if seed is not None:
+        torch.manual_seed(seed)
+
+    selected_features = []
+    selected_labels = []
+    class_means = []
+
+    for cls in range(num_classes):
+        idx = (labels == cls).nonzero(as_tuple=True)[0]
+        assert len(idx) >= n_samples_per_class, f"Not enough samples in class {cls}"
+
+        chosen_idx = idx[torch.randperm(len(idx))[:n_samples_per_class]]
+        feats = features[chosen_idx]
+
+        selected_features.append(feats)
+        selected_labels.append(labels[chosen_idx])
+
+        if return_class_mean:
+            class_means.append(feats.mean(dim=0, keepdim=True))  # shape: [1, D]
+
+    selected_features = torch.cat(selected_features, dim=0)  # [num_classes * n_samples_per_class, D]
+    selected_labels = torch.cat(selected_labels, dim=0)      # [num_classes * n_samples_per_class]
+
+    if return_class_mean:
+        class_mean_features = torch.cat(class_means, dim=0)  # [num_classes, D]
+        return selected_features, selected_labels, class_mean_features
+    else:
+        return selected_features, selected_labels
+
+def sample_features_per_class_coco(features: torch.Tensor, n_samples: int = 100, seed: int = 42):
+    """
+    Args:
+        features: Tensor of shape [171, 3000, 1024]
+        n_samples: Number of samples to select per class
+        seed: Random seed for reproducibility
+    Returns:
+        sampled_feats: Tensor of shape [17100, 1024]
+        labels: Tensor of shape [17100]
+    """
+    torch.manual_seed(seed)
+    num_classes, num_per_class, feat_dim = features.shape
+
+    sampled_list = []
+    label_list = []
+
+    for cls_idx in range(num_classes):
+        indices = torch.randperm(num_per_class)[:n_samples]
+        sampled = features[cls_idx][indices]  # [100, 1024]
+        sampled_list.append(sampled)
+
+        labels = torch.full((n_samples,), cls_idx, dtype=torch.long)
+        label_list.append(labels)
+
+    sampled_feats = torch.cat(sampled_list, dim=0)  # [17100, 1024]
+    labels = torch.cat(label_list, dim=0)           # [17100]
+
+    return sampled_feats, labels
