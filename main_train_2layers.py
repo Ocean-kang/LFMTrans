@@ -63,37 +63,111 @@ def train_projector_oncefmap(cfg, model, feature_dict, criterion, device, _log):
             feat_language = feature_dict["cifar-10"]["train"]["all-Roberta-large-v1"].to(device).float()
             feat_vision = feature_dict["cifar-10"]["train"]["dinov2"].to(device).float()
             feat_labels = feature_dict["cifar-10"]["train"]["labels"].to(device).float()
+            n_cls, n_prompt, dimension = feat_language.shape
+            feat_language = feat_language.view(-1, cfg.model.text_dimension) # [10, 18, 1024] -> [180, 1024]
+            feat_vision, feat_labels = select_samples_per_class(feat_vision, feat_labels, n_cls, n_prompt, cfg.seed) # [180, 1024], [180]
+
+            # Load model
+            model = model.to(device)
+            optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+            model.train()
+
+            total_loss = 0.0
+            for epoch in range(num_epochs):
+
+                x = feat_language.to(device)  # [B, text_dimension]
+                y = feat_vision.to(device)  # [B, vision_dimension]
+
+                optimizer.zero_grad()
+                output = model(x)  # [B, vision_dimension]
+
+                # Loss
+                loss = criterion(output, x)
+                loss.backward()
+                optimizer.step()
+                total_loss += loss.item()
+
+                _log.info(f"Epoch {epoch+1}/{num_epochs} - ProjectorLoss - Loss: {loss:.4f}")
+            _log.info(f"Train Projector Finished - Avg Loss: {total_loss / num_epochs:.4f}")
         elif cfg.train.dataset == 'CIFAR-100':
             feat_language = feature_dict["cifar-100"]["test"]["all-mpnet-base-v2"].to(device).float()
             feat_vision = feature_dict["cifar-100"]["test"]["dinov2"].to(device).float()
             feat_labels = feature_dict["cifar-100"]["test"]["labels"].to(device).float()
+            n_cls, n_prompt, dimension = feat_language.shape
+            feat_language = feat_language.view(-1, cfg.model.text_dimension) # [10, 18, 1024] -> [180, 1024]
+            feat_vision, feat_labels = select_samples_per_class(feat_vision, feat_labels, n_cls, n_prompt, cfg.seed) # [180, 1024], [180]
+            # Load model
+            model = model.to(device)
+            optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+            model.train()
 
-        n_cls, n_prompt, dimension = feat_language.shape
-        feat_language = feat_language.view(-1, cfg.model.text_dimension) # [10, 18, 1024] -> [180, 1024]
-        feat_vision, feat_labels = select_samples_per_class(feat_vision, feat_labels, n_cls, n_prompt, cfg.seed) # [180, 1024], [180]
+            total_loss = 0.0
+            for epoch in range(num_epochs):
+
+                x = feat_language.to(device)  # [B, text_dimension]
+                y = feat_vision.to(device)  # [B, vision_dimension]
+
+                optimizer.zero_grad()
+                output = model(x)  # [B, vision_dimension]
+
+                # Loss
+                loss = criterion(output, x)
+                loss.backward()
+                optimizer.step()
+                total_loss += loss.item()
+
+                _log.info(f"Epoch {epoch+1}/{num_epochs} - ProjectorLoss - Loss: {loss:.4f}")
+            _log.info(f"Train Projector Finished - Avg Loss: {total_loss / num_epochs:.4f}")
+        elif cfg.train.dataset == 'cocostuff':
+            feat_llama3_train = feature_dict["llama3_synonym_features"]["llama3_coco"].to('cpu').float()
+            feat_dinov2_train = feature_dict["dinov2_synonym_features"]["dinov2_coco"].to('cpu').float()
+            feat_dinov2_train = torch.cat([feat_dinov2_train], 1)
+            feat_llama3_train = torch.cat([feat_llama3_train], 1)
+            # Find zero embeddings
+            if (feat_dinov2_train.sum(-1) == 0).sum() > 0:
+                for i in range(len(feat_dinov2_train)):
+                    if (feat_dinov2_train[i].sum(-1) == 0).sum() > 0:
+                        zero_idx = torch.where((feat_dinov2_train[i].sum(-1) == 0))[0]
+                        nonzero_idx = torch.where((feat_dinov2_train[i].sum(-1) != 0))[0]
+                        pad_idx = np.array(random.choices(list(nonzero_idx.numpy()), k=len(zero_idx)))
+                        feat_dinov2_train[i][zero_idx] = feat_dinov2_train[i][pad_idx]
+            if (feat_llama3_train.sum(-1) == 0).sum() > 0:
+                for i in range(len(feat_llama3_train)):
+                    if (feat_llama3_train[i].sum(-1) == 0).sum() > 0:
+                        zero_idx = torch.where((feat_llama3_train[i].sum(-1) == 0))[0]
+                        nonzero_idx = torch.where((feat_llama3_train[i].sum(-1) != 0))[0]
+                        pad_idx = np.array(random.choices(list(nonzero_idx.numpy()), k=len(zero_idx)))
+                        feat_llama3_train[i][zero_idx] = feat_llama3_train[i][pad_idx]
+
+            feat_language = feat_llama3_train.to(device).float()
+            feat_vision = feat_dinov2_train.to(device).float()
+            n_prompt = cfg.train.samples
+            feat_vision, feat_labels = sample_features_per_class_coco(feat_vision, n_prompt, cfg.seed)
+            feat_language, feat_labels_language = sample_features_per_class_coco(feat_language, n_prompt, cfg.seed)
+            feat_labels = feat_labels.to(device)
     
-    # Load model
-    model = model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    model.train()
+            # Load model
+            model = model.to(device)
+            optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+            model.train()
 
-    total_loss = 0.0
-    for epoch in range(num_epochs):
+            total_loss = 0.0
+            for epoch in range(num_epochs):
 
-        x = feat_language.to(device)  # [B, text_dimension]
-        y = feat_vision.to(device)  # [B, vision_dimension]
+                x = feat_language.to(device)  # [B, text_dimension]
+                y = feat_vision.to(device)  # [B, vision_dimension]
 
-        optimizer.zero_grad()
-        output = model(x)  # [B, vision_dimension]
+                optimizer.zero_grad()
+                output = model(x)  # [B, vision_dimension]
 
-        # Loss
-        loss = criterion(output, x)
-        loss.backward()
-        optimizer.step()
-        total_loss += loss.item()
+                # Loss
+                loss = criterion(output, x)
+                loss.backward()
+                optimizer.step()
+                total_loss += loss.item()
 
-        _log.info(f"Epoch {epoch+1}/{num_epochs} - ProjectorLoss - Loss: {loss:.4f}")
-    _log.info(f"Train Projector Finished - Avg Loss: {total_loss / num_epochs:.4f}")
+                _log.info(f"Epoch {epoch+1}/{num_epochs} - ProjectorLoss - Loss: {loss:.4f}")
+            _log.info(f"Train Projector Finished - Avg Loss: {total_loss / num_epochs:.4f}")
 
     return None
 
@@ -120,79 +194,239 @@ def train_translator_oncefmap(cfg, model_proj, model, feature_dict, criterion, d
             feat_language = feature_dict["cifar-10"]["train"]["all-Roberta-large-v1"].to(device).float()
             feat_vision = feature_dict["cifar-10"]["train"]["dinov2"].to(device).float()
             feat_labels = feature_dict["cifar-10"]["train"]["labels"].to(device).float()
+            n_cls, n_prompt, dimension = feat_language.shape
+            feat_language = feat_language.view(-1, cfg.model.text_dimension) # [10, 18, 1024] -> [180, 1024]
+            feat_vision, feat_labels = select_samples_per_class(feat_vision, feat_labels, n_cls, n_prompt, cfg.seed) # [180, 1024], [180]
+            
+            # project into same dimension
+            with torch.no_grad():
+                model_proj.eval()
+                feat_language = model_proj(feat_language)
+
+
+            # adding batch dimension
+            if cfg.train.batchsize == 1:
+                feat_language = feat_language.unsqueeze(0)
+                feat_vision = feat_vision.unsqueeze(0)
+            
+            # Load model
+            model = model.to(device)
+            optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+            model.train()
+
+            # compute once eigenvecs and eigenvals in each multimodels
+            # vision
+            W_v = Latent_knn_graph_construct_numpy(cfg, feat_vision, device, symmetrize=True)
+            v_vecs, v_vals = laplacian_main_sparse(W_v, cfg.laplacian_mat.k)
+
+            #language
+            W_t = Latent_knn_graph_construct_numpy(cfg, feat_language, device, symmetrize=True)
+            t_vecs, t_vals = laplacian_main_sparse(W_t, cfg.laplacian_mat.k)
+
+            # cpu -> gpu and np.arrary -> torch.tensor and adding batchsize
+            # vision
+            v_vecs = torch.from_numpy(v_vecs).to(device).float().unsqueeze(0)
+            v_vals = torch.from_numpy(v_vals).to(device).float().unsqueeze(0)
+            # language
+            t_vecs = torch.from_numpy(t_vecs).to(device).float().unsqueeze(0)
+            t_vals = torch.from_numpy(t_vals).to(device).float().unsqueeze(0)
+
+            total_loss = 0.0
+            for epoch in range(num_epochs):
+
+                x = feat_language.to(device)  # [B, text_dimension]
+                y = feat_vision.to(device)  # [B, vision_dimension]
+
+                optimizer.zero_grad()
+                output_x = model(x)  # [B, vision_dimension]
+                output_y = model(y)  # [B, vision_dimension]
+
+                # compute permutation
+                Pxy, Pyx = compute_permutation_matrices(cfg, output_x, output_y)
+
+                # Loss
+                loss_dict = criterion(output_x, output_y, t_vals, v_vals, t_vecs, v_vecs, Pxy, Pyx)
+
+                # Weight_init
+                (W_lap, W_orth, W_bij, W_align, W_ot) = (cfg.loss.w_lap, cfg.loss.w_orth, cfg.loss.w_bij, cfg.loss.w_align, 1.0)
+
+                loss_fm = loss_dict['l_lap'] * W_lap + loss_dict['l_orth'] * W_orth + loss_dict['l_bij'] * W_bij
+                loss_align = loss_dict['l_align'] * W_align
+                loss_ot = loss_dict['l_ot'] * W_ot
+                loss = loss_fm + loss_align + loss_ot
+                
+                loss.backward()
+                optimizer.step()
+
+                total_loss += loss.item()
+
+                _log.info(f"Epoch {epoch+1}/{num_epochs} -Fmap/Align/Ot: {loss_fm:.3f}/{loss_align:.3f}/{loss_ot:.3f} TotalLoss: {loss:.4f}")
+            _log.info(f"Train Finished - Avg Loss: {total_loss / num_epochs:.4f}")
         elif cfg.train.dataset == 'CIFAR-100':
             feat_language = feature_dict["cifar-100"]["test"]["all-mpnet-base-v2"].to(device).float()
             feat_vision = feature_dict["cifar-100"]["test"]["dinov2"].to(device).float()
             feat_labels = feature_dict["cifar-100"]["test"]["labels"].to(device).float()
 
-        n_cls, n_prompt, dimension = feat_language.shape
-        feat_language = feat_language.view(-1, cfg.model.text_dimension) # [10, 18, 1024] -> [180, 1024]
-        feat_vision, feat_labels = select_samples_per_class(feat_vision, feat_labels, n_cls, n_prompt, cfg.seed) # [180, 1024], [180]
+            n_cls, n_prompt, dimension = feat_language.shape
+            feat_language = feat_language.view(-1, cfg.model.text_dimension) # [10, 18, 1024] -> [180, 1024]
+            feat_vision, feat_labels = select_samples_per_class(feat_vision, feat_labels, n_cls, n_prompt, cfg.seed) # [180, 1024], [180]
 
-    # project into same dimension
-    with torch.no_grad():
-        model_proj.eval()
-        feat_language = model_proj(feat_language)
+            # project into same dimension
+            with torch.no_grad():
+                model_proj.eval()
+                feat_language = model_proj(feat_language)
 
 
-    # adding batch dimension
-    if cfg.train.batchsize == 1:
-        feat_language = feat_language.unsqueeze(0)
-        feat_vision = feat_vision.unsqueeze(0)
-    
-    # Load model
-    model = model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    model.train()
+            # adding batch dimension
+            if cfg.train.batchsize == 1:
+                feat_language = feat_language.unsqueeze(0)
+                feat_vision = feat_vision.unsqueeze(0)
+            
+            # Load model
+            model = model.to(device)
+            optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+            model.train()
 
-    # compute once eigenvecs and eigenvals in each multimodels
-    # vision
-    W_v = Latent_knn_graph_construct_numpy(cfg, feat_vision, device, symmetrize=True)
-    v_vecs, v_vals = laplacian_main_sparse(W_v, cfg.laplacian_mat.k)
+            # compute once eigenvecs and eigenvals in each multimodels
+            # vision
+            W_v = Latent_knn_graph_construct_numpy(cfg, feat_vision, device, symmetrize=True)
+            v_vecs, v_vals = laplacian_main_sparse(W_v, cfg.laplacian_mat.k)
 
-    #language
-    W_t = Latent_knn_graph_construct_numpy(cfg, feat_language, device, symmetrize=True)
-    t_vecs, t_vals = laplacian_main_sparse(W_t, cfg.laplacian_mat.k)
+            #language
+            W_t = Latent_knn_graph_construct_numpy(cfg, feat_language, device, symmetrize=True)
+            t_vecs, t_vals = laplacian_main_sparse(W_t, cfg.laplacian_mat.k)
 
-    # cpu -> gpu and np.arrary -> torch.tensor and adding batchsize
-    # vision
-    v_vecs = torch.from_numpy(v_vecs).to(device).float().unsqueeze(0)
-    v_vals = torch.from_numpy(v_vals).to(device).float().unsqueeze(0)
-    # language
-    t_vecs = torch.from_numpy(t_vecs).to(device).float().unsqueeze(0)
-    t_vals = torch.from_numpy(t_vals).to(device).float().unsqueeze(0)
+            # cpu -> gpu and np.arrary -> torch.tensor and adding batchsize
+            # vision
+            v_vecs = torch.from_numpy(v_vecs).to(device).float().unsqueeze(0)
+            v_vals = torch.from_numpy(v_vals).to(device).float().unsqueeze(0)
+            # language
+            t_vecs = torch.from_numpy(t_vecs).to(device).float().unsqueeze(0)
+            t_vals = torch.from_numpy(t_vals).to(device).float().unsqueeze(0)
 
-    total_loss = 0.0
-    for epoch in range(num_epochs):
+            total_loss = 0.0
+            for epoch in range(num_epochs):
 
-        x = feat_language.to(device)  # [B, text_dimension]
-        y = feat_vision.to(device)  # [B, vision_dimension]
+                x = feat_language.to(device)  # [B, text_dimension]
+                y = feat_vision.to(device)  # [B, vision_dimension]
 
-        optimizer.zero_grad()
-        output_x = model(x)  # [B, vision_dimension]
-        output_y = model(y)  # [B, vision_dimension]
+                optimizer.zero_grad()
+                output_x = model(x)  # [B, vision_dimension]
+                output_y = model(y)  # [B, vision_dimension]
 
-        # compute permutation
-        Pxy, Pyx = compute_permutation_matrices(cfg, output_x, output_y)
+                # compute permutation
+                Pxy, Pyx = compute_permutation_matrices(cfg, output_x, output_y)
 
-        # Loss
-        loss_dict = criterion(output_x, output_y, t_vals, v_vals, t_vecs, v_vecs, Pxy, Pyx)
+                # Loss
+                loss_dict = criterion(output_x, output_y, t_vals, v_vals, t_vecs, v_vecs, Pxy, Pyx)
 
-        # Weight_init
-        (W_lap, W_orth, W_bij, W_align, W_ot) = (cfg.loss.w_lap, cfg.loss.w_orth, cfg.loss.w_bij, cfg.loss.w_align, 1.0)
+                # Weight_init
+                (W_lap, W_orth, W_bij, W_align, W_ot) = (cfg.loss.w_lap, cfg.loss.w_orth, cfg.loss.w_bij, cfg.loss.w_align, 1.0)
 
-        loss_fm = loss_dict['l_lap'] * W_lap + loss_dict['l_orth'] * W_orth + loss_dict['l_bij'] * W_bij
-        loss_align = loss_dict['l_align'] * W_align
-        loss_ot = loss_dict['l_ot'] * W_ot
-        loss = loss_fm + loss_align + loss_ot
-        
-        loss.backward()
-        optimizer.step()
+                loss_fm = loss_dict['l_lap'] * W_lap + loss_dict['l_orth'] * W_orth + loss_dict['l_bij'] * W_bij
+                loss_align = loss_dict['l_align'] * W_align
+                loss_ot = loss_dict['l_ot'] * W_ot
+                loss = loss_fm + loss_align + loss_ot
+                
+                loss.backward()
+                optimizer.step()
 
-        total_loss += loss.item()
+                total_loss += loss.item()
 
-        _log.info(f"Epoch {epoch+1}/{num_epochs} -Fmap/Align/Ot: {loss_fm:.3f}/{loss_align:.3f}/{loss_ot:.3f} TotalLoss: {loss:.4f}")
-    _log.info(f"Train Finished - Avg Loss: {total_loss / num_epochs:.4f}")
+                _log.info(f"Epoch {epoch+1}/{num_epochs} -Fmap/Align/Ot: {loss_fm:.3f}/{loss_align:.3f}/{loss_ot:.3f} TotalLoss: {loss:.4f}")
+            _log.info(f"Train Finished - Avg Loss: {total_loss / num_epochs:.4f}")
+        elif cfg.train.dataset == 'cocostuff':
+            feat_llama3_train = feature_dict["llama3_synonym_features"]["llama3_coco"].to('cpu').float()
+            feat_dinov2_train = feature_dict["dinov2_synonym_features"]["dinov2_coco"].to('cpu').float()
+            feat_dinov2_train = torch.cat([feat_dinov2_train], 1)
+            feat_llama3_train = torch.cat([feat_llama3_train], 1)
+            # Find zero embeddings
+            if (feat_dinov2_train.sum(-1) == 0).sum() > 0:
+                for i in range(len(feat_dinov2_train)):
+                    if (feat_dinov2_train[i].sum(-1) == 0).sum() > 0:
+                        zero_idx = torch.where((feat_dinov2_train[i].sum(-1) == 0))[0]
+                        nonzero_idx = torch.where((feat_dinov2_train[i].sum(-1) != 0))[0]
+                        pad_idx = np.array(random.choices(list(nonzero_idx.numpy()), k=len(zero_idx)))
+                        feat_dinov2_train[i][zero_idx] = feat_dinov2_train[i][pad_idx]
+            if (feat_llama3_train.sum(-1) == 0).sum() > 0:
+                for i in range(len(feat_llama3_train)):
+                    if (feat_llama3_train[i].sum(-1) == 0).sum() > 0:
+                        zero_idx = torch.where((feat_llama3_train[i].sum(-1) == 0))[0]
+                        nonzero_idx = torch.where((feat_llama3_train[i].sum(-1) != 0))[0]
+                        pad_idx = np.array(random.choices(list(nonzero_idx.numpy()), k=len(zero_idx)))
+                        feat_llama3_train[i][zero_idx] = feat_llama3_train[i][pad_idx]
+
+            feat_language = feat_llama3_train.to(device).float()
+            feat_vision = feat_dinov2_train.to(device).float()
+            n_prompt = cfg.train.samples
+            feat_vision, feat_labels = sample_features_per_class_coco(feat_vision, n_prompt, cfg.seed)
+            feat_language, feat_labels_language = sample_features_per_class_coco(feat_language, n_prompt, cfg.seed)
+            feat_labels = feat_labels.to(device)
+
+            # project into same dimension
+            with torch.no_grad():
+                model_proj.eval()
+                feat_language = model_proj(feat_language)
+
+
+            # adding batch dimension
+            if cfg.train.batchsize == 1:
+                feat_language = feat_language.unsqueeze(0)
+                feat_vision = feat_vision.unsqueeze(0)
+            
+            # Load model
+            model = model.to(device)
+            optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+            model.train()
+
+            # compute once eigenvecs and eigenvals in each multimodels
+            # vision
+            W_v = Latent_knn_graph_construct_numpy(cfg, feat_vision, device, symmetrize=True)
+            v_vecs, v_vals = laplacian_main_sparse(W_v, cfg.laplacian_mat.k)
+
+            #language
+            W_t = Latent_knn_graph_construct_numpy(cfg, feat_language, device, symmetrize=True)
+            t_vecs, t_vals = laplacian_main_sparse(W_t, cfg.laplacian_mat.k)
+
+            # cpu -> gpu and np.arrary -> torch.tensor and adding batchsize
+            # vision
+            v_vecs = torch.from_numpy(v_vecs).to(device).float().unsqueeze(0)
+            v_vals = torch.from_numpy(v_vals).to(device).float().unsqueeze(0)
+            # language
+            t_vecs = torch.from_numpy(t_vecs).to(device).float().unsqueeze(0)
+            t_vals = torch.from_numpy(t_vals).to(device).float().unsqueeze(0)
+
+            total_loss = 0.0
+            for epoch in range(num_epochs):
+
+                x = feat_language.to(device)  # [B, text_dimension]
+                y = feat_vision.to(device)  # [B, vision_dimension]
+
+                optimizer.zero_grad()
+                output_x = model(x)  # [B, vision_dimension]
+                output_y = model(y)  # [B, vision_dimension]
+
+                # compute permutation
+                Pxy, Pyx = compute_permutation_matrices(cfg, output_x, output_y)
+
+                # Loss
+                loss_dict = criterion(output_x, output_y, t_vals, v_vals, t_vecs, v_vecs, Pxy, Pyx)
+
+                # Weight_init
+                (W_lap, W_orth, W_bij, W_align, W_ot) = (cfg.loss.w_lap, cfg.loss.w_orth, cfg.loss.w_bij, cfg.loss.w_align, 1.0)
+
+                loss_fm = loss_dict['l_lap'] * W_lap + loss_dict['l_orth'] * W_orth + loss_dict['l_bij'] * W_bij
+                loss_align = loss_dict['l_align'] * W_align
+                loss_ot = loss_dict['l_ot'] * W_ot
+                loss = loss_fm + loss_align + loss_ot
+                
+                loss.backward()
+                optimizer.step()
+
+                total_loss += loss.item()
+
+                _log.info(f"Epoch {epoch+1}/{num_epochs} -Fmap/Align/Ot: {loss_fm:.3f}/{loss_align:.3f}/{loss_ot:.3f} TotalLoss: {loss:.4f}")
+            _log.info(f"Train Finished - Avg Loss: {total_loss / num_epochs:.4f}")
 
     return None
 

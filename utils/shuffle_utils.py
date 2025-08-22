@@ -1,6 +1,6 @@
 import random
 import torch
-
+from typing import Tuple
 
 def shuffle_tensor(cfg, device, feats: torch.Tensor):
     """
@@ -171,3 +171,25 @@ def sample_features_per_class_coco(features: torch.Tensor, n_samples: int = 100,
     labels = torch.cat(label_list, dim=0)           # [17100]
 
     return sampled_feats, labels
+
+def shuffle_features_and_labels(
+    features: torch.Tensor, 
+    labels: torch.Tensor, 
+    seed: int = None
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Shuffle features and their corresponding labels in the same order.
+
+    Args:
+        features (torch.Tensor): A tensor of shape [N, D] representing N feature vectors of dimension D.
+        labels (torch.Tensor): A tensor of shape [N] representing labels corresponding to each feature.
+        seed (int, optional): Random seed for reproducibility.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: Shuffled (features, labels) tensors.
+    """
+    if seed is not None:
+        torch.manual_seed(seed)
+
+    perm = torch.randperm(features.size(0))
+    return features[perm], labels[perm]

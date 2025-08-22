@@ -14,8 +14,8 @@ from model.Encoder import LinearProjText
 from loss.gromov_loss import SGW
 from utils.knngraph import Latent_knn_graph_construct_numpy
 from utils.LatentFuncitonMap import laplacian_main_sparse
-from utils.shuffle_utils import shuffle_tensor, select_samples_per_class, map_indices_to_class_labels, sample_features_per_class_coco
-from utils.fmap_retrieval import deepfmap_retrieval, fmap_retrieval, accrucy_fn, cos_sim_retrieval
+from utils.shuffle_utils import shuffle_tensor, select_samples_per_class, map_indices_to_class_labels, sample_features_per_class_coco, shuffle_features_and_labels
+from utils.fmap_retrieval import deepfmap_retrieval, fmap_retrieval, accrucy_fn, cos_sim_retrieval, fmap_retrieval_norm
 from model.fmap_network import RegularizedFMNet
 
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -390,20 +390,35 @@ def eval_proj(cfg, model_1, feature_dict, device, _log):
             t_vecs = t_vecs.squeeze(0)
             feat_t_trans = feat_t_trans.squeeze(0)
             feat_v = feat_v.squeeze(0)
-            # Cxy
+
+            # shuffle feats and labels
+            # feat_v, feat_labels = shuffle_features_and_labels(feat_vision, feat_labels, cfg.seed)
+
+            # Cxy_deep
             csr_index_Cxy = deepfmap_retrieval(cfg, Cxy, v_vecs, t_vecs, feat_v, feat_t_trans)
-            # Cyx
+            # Cyx_deep
             csr_index_Cyx = deepfmap_retrieval(cfg, Cyx, t_vecs, v_vecs, feat_t_trans, feat_v)
+            # Cxy
+            csr_index_Cxy_test = fmap_retrieval_norm(cfg, Cxy, v_vecs, t_vecs)
+            # Cyx
+            csr_index_Cyx_test = fmap_retrieval_norm(cfg, Cyx, t_vecs, v_vecs)
+
             # map indexes to classes
             csr_index_Cxy = map_indices_to_class_labels(csr_index_Cxy, n_prompt)
             csr_index_Cyx = map_indices_to_class_labels(csr_index_Cyx, n_prompt)
+            csr_index_Cxy_test = map_indices_to_class_labels(csr_index_Cxy_test, n_prompt)
+            csr_index_Cyx_test = map_indices_to_class_labels(csr_index_Cyx_test, n_prompt)
             
-            accurcy_Cxy = accrucy_fn(feat_labels, csr_index_Cxy)
-            accurcy_Cyx = accrucy_fn(feat_labels, csr_index_Cyx)
+            accurcy_Cxy_deep = accrucy_fn(feat_labels, csr_index_Cxy)
+            accurcy_Cyx_deep = accrucy_fn(feat_labels, csr_index_Cyx)
+            accurcy_Cxy = accrucy_fn(feat_labels, csr_index_Cxy_test)
+            accurcy_Cyx = accrucy_fn(feat_labels, csr_index_Cyx_test)
 
             accrucy = (accurcy_Cxy + accurcy_Cyx) / 2
+            accrucy_deep = (accurcy_Cxy_deep + accurcy_Cyx_deep) / 2
+            _log.info(f"Train Finished - photo - Cxy_deep/Cyx_deep/Avg accrucy_deep: {accurcy_Cxy_deep:.4f}/{accurcy_Cyx_deep:.4f}/{accrucy_deep:.4f}")
             _log.info(f"Train Finished - photo - Cxy/Cyx/Avg accrucy: {accurcy_Cxy:.4f}/{accurcy_Cyx:.4f}/{accrucy:.4f}")
-
+            breakpoint()
     return None
 
 @ex.automain
