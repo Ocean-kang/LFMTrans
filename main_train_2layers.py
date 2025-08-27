@@ -13,10 +13,10 @@ from easydict import EasyDict as edict
 from model.Encoder import LinearProjText, Translator
 from loss.proj_loss import proj_loss_sparse_oncefmap
 from loss.gromov_loss import SGW
-from utils.knngraph import Latent_knn_graph_construct_numpy
+from utils.knngraph import Latent_knn_graph_construct_numpy, Latent_knn_sysmmetric_graph_construct_numpy
 from utils.LatentFuncitonMap import laplacian_main_sparse
-from utils.shuffle_utils import shuffle_tensor, select_samples_per_class, map_indices_to_class_labels, sample_features_per_class_coco
-from utils.fmap_retrieval import deepfmap_retrieval, accrucy_fn, cos_sim_retrieval
+from utils.shuffle_utils import shuffle_tensor, select_samples_per_class, map_indices_to_class_labels, sample_features_per_class_coco, shuffle_features_and_labels
+from utils.fmap_retrieval import deepfmap_retrieval, accrucy_fn, cos_sim_retrieval, fmap_retrieval
 from utils.permutation_compute import compute_permutation_matrices
 from model.fmap_network import RegularizedFMNet
 
@@ -58,6 +58,29 @@ def train_projector_oncefmap(cfg, model, feature_dict, criterion, device, _log):
     if TRAINTYPE == 'prototype':
         feat_language = feature_dict["llama3_features"]["llama3_coco"].to(device).float()
         feat_vision = feature_dict["dinov2_features"]["dinov2_coco"].to(device).float()
+        # Load model
+        model = model.to(device)
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+        model.train()
+
+        total_loss = 0.0
+        for epoch in range(num_epochs):
+
+            x = feat_language.to(device)  # [B, text_dimension]
+            y = feat_vision.to(device)  # [B, vision_dimension]
+
+            optimizer.zero_grad()
+            output = model(x)  # [B, vision_dimension]
+
+            # Loss
+            loss = criterion(output, x)
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+
+            _log.info(f"Epoch {epoch+1}/{num_epochs} - ProjectorLoss - Loss: {loss:.4f}")
+        _log.info(f"Train Projector Finished - Avg Loss: {total_loss / num_epochs:.4f}")    
+    
     elif TRAINTYPE == 'photo':
         if cfg.train.dataset == 'CIFAR-10':
             feat_language = feature_dict["cifar-10"]["train"]["all-Roberta-large-v1"].to(device).float()
@@ -189,6 +212,71 @@ def train_translator_oncefmap(cfg, model_proj, model, feature_dict, criterion, d
     if TRAINTYPE == 'prototype':
         feat_language = feature_dict["llama3_features"]["llama3_coco"].to(device).float()
         feat_vision = feature_dict["dinov2_features"]["dinov2_coco"].to(device).float()
+
+        # project into same dimension
+        with torch.no_grad():
+            model_proj.eval()
+            feat_language = model_proj(feat_language)
+
+        # adding batch dimension
+        if cfg.train.batchsize == 1:
+            feat_language = feat_language.unsqueeze(0)
+            feat_vision = feat_vision.unsqueeze(0)
+        
+        # Load model
+        model = model.to(device)
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+        model.train()
+
+        # compute once eigenvecs and eigenvals in each multimodels
+        # vision
+        W_v = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_vision, device, symmetrize=True)
+        v_vecs, v_vals = laplacian_main_sparse(W_v, cfg.laplacian_mat.k)
+
+        #language
+        W_t = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_language, device, symmetrize=True)
+        t_vecs, t_vals = laplacian_main_sparse(W_t, cfg.laplacian_mat.k)
+
+        # cpu -> gpu and np.arrary -> torch.tensor and adding batchsize
+        # vision
+        v_vecs = torch.from_numpy(v_vecs).to(device).float().unsqueeze(0)
+        v_vals = torch.from_numpy(v_vals).to(device).float().unsqueeze(0)
+        # language
+        t_vecs = torch.from_numpy(t_vecs).to(device).float().unsqueeze(0)
+        t_vals = torch.from_numpy(t_vals).to(device).float().unsqueeze(0)
+
+        total_loss = 0.0
+        for epoch in range(num_epochs):
+
+            x = feat_language.to(device)  # [B, text_dimension]
+            y = feat_vision.to(device)  # [B, vision_dimension]
+
+            optimizer.zero_grad()
+            output_x = model(x)  # [B, vision_dimension]
+            output_y = model(y)  # [B, vision_dimension]
+
+            # compute permutation
+            Pxy, Pyx = compute_permutation_matrices(cfg, output_x, output_y)
+
+            # Loss
+            loss_dict = criterion(output_x, output_y, t_vals, v_vals, t_vecs, v_vecs, Pxy, Pyx)
+
+            # Weight_init
+            (W_lap, W_orth, W_bij, W_align, W_ot) = (cfg.loss.w_lap, cfg.loss.w_orth, cfg.loss.w_bij, cfg.loss.w_align, 1.0)
+
+            loss_fm = loss_dict['l_lap'] * W_lap + loss_dict['l_orth'] * W_orth + loss_dict['l_bij'] * W_bij
+            loss_align = loss_dict['l_align'] * W_align
+            loss_ot = loss_dict['l_ot'] * W_ot
+            loss = loss_fm + loss_align + loss_ot
+            
+            loss.backward()
+            optimizer.step()
+
+            total_loss += loss.item()
+
+            _log.info(f"Epoch {epoch+1}/{num_epochs} -Fmap/Align/Ot: {loss_fm:.3f}/{loss_align:.3f}/{loss_ot:.3f} TotalLoss: {loss:.4f}")
+        _log.info(f"Train Finished - Avg Loss: {total_loss / num_epochs:.4f}")
+
     elif TRAINTYPE == 'photo':
         if cfg.train.dataset == 'CIFAR-10':
             feat_language = feature_dict["cifar-10"]["train"]["all-Roberta-large-v1"].to(device).float()
@@ -436,69 +524,82 @@ def eval_proj_translator(cfg, model_1, model_2, feature_dict, device, _log):
     TRAINTYPE = cfg.train.type
     # Load features
     if TRAINTYPE == 'prototype':
-        feat_language = feature_dict["llama3_features"]["llama3_coco"].to(device).float()
-        feat_vision = feature_dict["dinov2_features"]["dinov2_coco"].to(device).float()
+        if cfg.train.dataset == 'cocostuff':
+            feat_language = feature_dict["llama3_features"]["llama3_coco"].to(device).float()
+            feat_vision = feature_dict["dinov2_features"]["dinov2_coco"].to(device).float()
+            n_cls, dimension = feat_language.shape
+            feat_labels = torch.arange(n_cls).to(device).float()
 
-        # projector and translator
-        feat_v = model_2(feat_vision)
-        feat_t_trans = model_2(model_1(feat_language))
+            model_1 = model_1.to(device)
+            model_2 = model_2.to(device)
+            # projector and translator
+            feat_v = model_2(feat_vision)
+            feat_t_trans = model_2(model_1(feat_language))
 
-        csr_accuracy_t2v = cos_sim_retrieval(feat_t_trans, feat_v)
-        csr_accuracy_v2t = cos_sim_retrieval(feat_v, feat_t_trans)
+            csr_accuracy_t2v = cos_sim_retrieval(feat_t_trans, feat_v)
+            csr_accuracy_v2t = cos_sim_retrieval(feat_v, feat_t_trans)
 
-        # compute once eigenvecs and eigenvals in each multimodels
-        # vision
-        W_v = Latent_knn_graph_construct_numpy(cfg, feat_vision, device, symmetrize=True)
-        v_vecs, v_vals = laplacian_main_sparse(W_v, cfg.laplacian_mat.k)
+            # compute once eigenvecs and eigenvals in each multimodels
+            # vision
+            W_v = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_vision, device, symmetrize=True)
+            v_vecs, v_vals = laplacian_main_sparse(W_v, cfg.laplacian_mat.k)
 
-        #language
-        W_t = Latent_knn_graph_construct_numpy(cfg, feat_language, device, symmetrize=True)
-        t_vecs, t_vals = laplacian_main_sparse(W_t, cfg.laplacian_mat.k)
+            #language
+            W_t = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_language, device, symmetrize=True)
+            t_vecs, t_vals = laplacian_main_sparse(W_t, cfg.laplacian_mat.k)
 
-        # cpu -> gpu and np.arrary -> torch.tensor and adding batchsize
-        # vision
-        v_vecs = torch.from_numpy(v_vecs).to(device).float()
-        v_vals = torch.from_numpy(v_vals).to(device).float()
-        # language
-        t_vecs = torch.from_numpy(t_vecs).to(device).float()
-        t_vals = torch.from_numpy(t_vals).to(device).float()
+            # cpu -> gpu and np.arrary -> torch.tensor and adding batchsize
+            # vision
+            v_vecs = torch.from_numpy(v_vecs).to(device).float()
+            v_vals = torch.from_numpy(v_vals).to(device).float()
+            # language
+            t_vecs = torch.from_numpy(t_vecs).to(device).float()
+            t_vals = torch.from_numpy(t_vals).to(device).float()
 
-        # adding batch dimension
-        # vision
-        feat_v = feat_v.to(device).unsqueeze(0)
-        v_vecs = v_vecs.unsqueeze(0)
-        v_vals = v_vals.unsqueeze(0)
+            # adding batch dimension
+            # vision
+            feat_v = feat_v.to(device).unsqueeze(0)
+            v_vecs = v_vecs.unsqueeze(0)
+            v_vals = v_vals.unsqueeze(0)
 
-        # language
-        feat_t_trans = feat_t_trans.float().to(device).unsqueeze(0)
-        t_vecs = t_vecs.unsqueeze(0)
-        t_vals = t_vals.unsqueeze(0)
+            # language
+            feat_t_trans = feat_t_trans.float().to(device).unsqueeze(0)
+            t_vecs = t_vecs.unsqueeze(0)
+            t_vals = t_vals.unsqueeze(0)
 
-        # shuffle vision side
-        feat_v_shuffled, shuffle_idx = shuffle_tensor(cfg, device, feat_v)
-        shuffle_idx = shuffle_idx.squeeze(0)
+            # shuffle vision side
+            feat_v_shuffled, shuffle_idx = shuffle_tensor(cfg, device, feat_v)
+            shuffle_idx = shuffle_idx.squeeze(0)
 
-        # build regularized_funciton_map model
-        fm_net = RegularizedFMNet(bidirectional=True)
-        Cxy, Cyx = fm_net(feat_v_shuffled, feat_t_trans, v_vals, t_vals, v_vecs, t_vecs)
+            # build regularized_funciton_map model
+            fm_net = RegularizedFMNet(bidirectional=True)
+            Cxy, Cyx = fm_net(feat_v_shuffled, feat_t_trans, v_vals, t_vals, v_vecs, t_vecs)
 
-        Cxy = Cxy.squeeze(0)
-        Cyx = Cyx.squeeze(0)
-        v_vecs = v_vecs.squeeze(0)
-        t_vecs = t_vecs.squeeze(0)
-        feat_v = feat_v.squeeze(0)
-        feat_t_trans = feat_t_trans.squeeze(0)
+            Cxy = Cxy.squeeze(0)
+            Cyx = Cyx.squeeze(0)
+            v_vecs = v_vecs.squeeze(0)
+            t_vecs = t_vecs.squeeze(0)
+            feat_v = feat_v.squeeze(0)
+            feat_t_trans = feat_t_trans.squeeze(0)
 
-        # Cxy
-        csr_index_Cxy = deepfmap_retrieval(cfg, Cxy, v_vecs, t_vecs, feat_v, feat_t_trans)
-        # Cyx
-        csr_index_Cyx = deepfmap_retrieval(cfg, Cyx, t_vecs, v_vecs, feat_t_trans, feat_v)
+            # Cxy_deep
+            csr_index_Cxy = deepfmap_retrieval(cfg, Cxy, v_vecs, t_vecs, feat_v, feat_t_trans)
+            # Cyx_deep
+            csr_index_Cyx = deepfmap_retrieval(cfg, Cyx, t_vecs, v_vecs, feat_t_trans, feat_v)
+            # Cxy
+            csr_index_Cxy_test = fmap_retrieval(cfg, Cxy, v_vecs, t_vecs)
+            # Cyx
+            csr_index_Cyx_test = fmap_retrieval(cfg, Cyx, t_vecs, v_vecs)
+            
+            accurcy_Cxy_deep = accrucy_fn(feat_labels, csr_index_Cxy)
+            accurcy_Cyx_deep = accrucy_fn(feat_labels, csr_index_Cyx)
+            accurcy_Cxy = accrucy_fn(feat_labels, csr_index_Cxy_test)
+            accurcy_Cyx = accrucy_fn(feat_labels, csr_index_Cyx_test)
 
-        accurcy_Cxy = accrucy_fn(shuffle_idx, csr_index_Cxy)
-        accurcy_Cyx = accrucy_fn(shuffle_idx, csr_index_Cyx)
-
-        accrucy = (accurcy_Cxy + accurcy_Cyx) / 2
-        _log.info(f"Train Finished - prototype - Avg accrucy: {accrucy:.4f} - CSR_t2v: {csr_accuracy_t2v:.4f} - CSR_v2t: {csr_accuracy_v2t:.4f}")
+            accrucy = (accurcy_Cxy + accurcy_Cyx) / 2
+            accrucy_deep = (accurcy_Cxy_deep + accurcy_Cyx_deep) / 2
+            _log.info(f"Train Finished - photo - Cxy_deep/Cyx_deep/Avg accrucy_deep: {accurcy_Cxy_deep:.4f}/{accurcy_Cyx_deep:.4f}/{accrucy_deep:.4f}")
+            _log.info(f"Train Finished - photo - Cxy/Cyx/Avg accrucy: {accurcy_Cxy:.4f}/{accurcy_Cyx:.4f}/{accrucy:.4f}")
 
     elif TRAINTYPE == 'photo':
         if cfg.train.dataset == 'CIFAR-10':
@@ -660,6 +761,9 @@ def eval_proj_translator(cfg, model_1, model_2, feature_dict, device, _log):
             feat_vision, feat_labels = sample_features_per_class_coco(feat_vision, n_prompt, cfg.seed)
             feat_language, feat_labels_language = sample_features_per_class_coco(feat_language, n_prompt, cfg.seed)
             feat_labels = feat_labels.to(device)
+
+            # shuffle feats and labels
+            feat_vision, feat_labels = shuffle_features_and_labels(feat_vision, feat_labels, cfg.seed)
 
             # projector and translator
             feat_v = model_2(feat_vision)
