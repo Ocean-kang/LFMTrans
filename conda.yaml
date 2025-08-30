@@ -1,0 +1,26 @@
+name: uvlt_dinov3
+channels:
+  - pytorch          # 官方 pytorch 通道
+  - nvidia           # cudatoolkit/cuda 相关包
+  - conda-forge      # 其余依赖
+  - https://mirrors.ustc.edu.cn/anaconda/cloud/pytorch
+  - https://mirrors.ustc.edu.cn/anaconda/pkgs/main
+  - https://mirrors.ustc.edu.cn/anaconda/pkgs/free
+  - https://mirrors.ustc.edu.cn/anaconda/cloud/conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pytorch=2.0.1        # 与 CUDA 11.7 对应
+  - torchvision=0.15.2
+  - torchaudio=2.0.2
+  - pytorch-cuda=11.7    # pytorch 官方提供的 cuda runtime
+  - cudatoolkit=11.7
+  - faiss-gpu            # faiss-gpu 1.7.4 起支持 py310+cu117
+  - iopath
+  - pandas
+  - easydict
+  - pycocotools
+  - matplotlib
+  - pip
+  - pip:
+    - scared             # conda-forge 没有，就用 pip

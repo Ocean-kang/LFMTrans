@@ -230,11 +230,11 @@ def train_translator_oncefmap(cfg, model_proj, model, feature_dict, criterion, d
 
         # compute once eigenvecs and eigenvals in each multimodels
         # vision
-        W_v = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_vision, device, symmetrize=True)
+        W_v = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_vision, device, symmetrize=False)
         v_vecs, v_vals = laplacian_main_sparse(W_v, cfg.laplacian_mat.k)
 
         #language
-        W_t = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_language, device, symmetrize=True)
+        W_t = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_language, device, symmetrize=False)
         t_vecs, t_vals = laplacian_main_sparse(W_t, cfg.laplacian_mat.k)
 
         # cpu -> gpu and np.arrary -> torch.tensor and adding batchsize
@@ -304,11 +304,11 @@ def train_translator_oncefmap(cfg, model_proj, model, feature_dict, criterion, d
 
             # compute once eigenvecs and eigenvals in each multimodels
             # vision
-            W_v = Latent_knn_graph_construct_numpy(cfg, feat_vision, device, symmetrize=True)
+            W_v = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_vision, device, symmetrize=False)
             v_vecs, v_vals = laplacian_main_sparse(W_v, cfg.laplacian_mat.k)
 
             #language
-            W_t = Latent_knn_graph_construct_numpy(cfg, feat_language, device, symmetrize=True)
+            W_t = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_language, device, symmetrize=False)
             t_vecs, t_vals = laplacian_main_sparse(W_t, cfg.laplacian_mat.k)
 
             # cpu -> gpu and np.arrary -> torch.tensor and adding batchsize
@@ -377,11 +377,11 @@ def train_translator_oncefmap(cfg, model_proj, model, feature_dict, criterion, d
 
             # compute once eigenvecs and eigenvals in each multimodels
             # vision
-            W_v = Latent_knn_graph_construct_numpy(cfg, feat_vision, device, symmetrize=True)
+            W_v = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_vision, device, symmetrize=False)
             v_vecs, v_vals = laplacian_main_sparse(W_v, cfg.laplacian_mat.k)
 
             #language
-            W_t = Latent_knn_graph_construct_numpy(cfg, feat_language, device, symmetrize=True)
+            W_t = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_language, device, symmetrize=False)
             t_vecs, t_vals = laplacian_main_sparse(W_t, cfg.laplacian_mat.k)
 
             # cpu -> gpu and np.arrary -> torch.tensor and adding batchsize
@@ -469,11 +469,11 @@ def train_translator_oncefmap(cfg, model_proj, model, feature_dict, criterion, d
 
             # compute once eigenvecs and eigenvals in each multimodels
             # vision
-            W_v = Latent_knn_graph_construct_numpy(cfg, feat_vision, device, symmetrize=True)
+            W_v = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_vision, device, symmetrize=False)
             v_vecs, v_vals = laplacian_main_sparse(W_v, cfg.laplacian_mat.k)
 
             #language
-            W_t = Latent_knn_graph_construct_numpy(cfg, feat_language, device, symmetrize=True)
+            W_t = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_language, device, symmetrize=False)
             t_vecs, t_vals = laplacian_main_sparse(W_t, cfg.laplacian_mat.k)
 
             # cpu -> gpu and np.arrary -> torch.tensor and adding batchsize
@@ -530,6 +530,9 @@ def eval_proj_translator(cfg, model_1, model_2, feature_dict, device, _log):
             n_cls, dimension = feat_language.shape
             feat_labels = torch.arange(n_cls).to(device).float()
 
+            # shuffle feats and labels
+            feat_vision, feat_labels = shuffle_features_and_labels(feat_vision, feat_labels, cfg.seed)
+
             model_1 = model_1.to(device)
             model_2 = model_2.to(device)
             # projector and translator
@@ -541,7 +544,7 @@ def eval_proj_translator(cfg, model_1, model_2, feature_dict, device, _log):
 
             # compute once eigenvecs and eigenvals in each multimodels
             # vision
-            W_v = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_vision, device, symmetrize=True)
+            W_v = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_v, device, symmetrize=False)
             v_vecs, v_vals = laplacian_main_sparse(W_v, cfg.laplacian_mat.k)
 
             #language
@@ -567,13 +570,9 @@ def eval_proj_translator(cfg, model_1, model_2, feature_dict, device, _log):
             t_vecs = t_vecs.unsqueeze(0)
             t_vals = t_vals.unsqueeze(0)
 
-            # shuffle vision side
-            feat_v_shuffled, shuffle_idx = shuffle_tensor(cfg, device, feat_v)
-            shuffle_idx = shuffle_idx.squeeze(0)
-
             # build regularized_funciton_map model
             fm_net = RegularizedFMNet(bidirectional=True)
-            Cxy, Cyx = fm_net(feat_v_shuffled, feat_t_trans, v_vals, t_vals, v_vecs, t_vecs)
+            Cxy, Cyx = fm_net(feat_v, feat_t_trans, v_vals, t_vals, v_vecs, t_vecs)
 
             Cxy = Cxy.squeeze(0)
             Cyx = Cyx.squeeze(0)
@@ -617,11 +616,11 @@ def eval_proj_translator(cfg, model_1, model_2, feature_dict, device, _log):
 
             # compute once eigenvecs and eigenvals in each multimodels
             # vision
-            W_v = Latent_knn_graph_construct_numpy(cfg, feat_vision, device, symmetrize=True)
+            W_v = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_vision, device, symmetrize=False)
             v_vecs, v_vals = laplacian_main_sparse(W_v, cfg.laplacian_mat.k)
 
             #language
-            W_t = Latent_knn_graph_construct_numpy(cfg, feat_language, device, symmetrize=True)
+            W_t = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_language, device, symmetrize=False)
             t_vecs, t_vals = laplacian_main_sparse(W_t, cfg.laplacian_mat.k)
 
             # cpu -> gpu and np.arrary -> torch.tensor and adding batchsize
@@ -683,11 +682,11 @@ def eval_proj_translator(cfg, model_1, model_2, feature_dict, device, _log):
 
             # compute once eigenvecs and eigenvals in each multimodels
             # vision
-            W_v = Latent_knn_graph_construct_numpy(cfg, feat_vision, device, symmetrize=True)
+            W_v = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_vision, device, symmetrize=False)
             v_vecs, v_vals = laplacian_main_sparse(W_v, cfg.laplacian_mat.k)
 
             #language
-            W_t = Latent_knn_graph_construct_numpy(cfg, feat_language, device, symmetrize=True)
+            W_t = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_language, device, symmetrize=False)
             t_vecs, t_vals = laplacian_main_sparse(W_t, cfg.laplacian_mat.k)
 
             # cpu -> gpu and np.arrary -> torch.tensor and adding batchsize
@@ -771,11 +770,11 @@ def eval_proj_translator(cfg, model_1, model_2, feature_dict, device, _log):
 
             # compute once eigenvecs and eigenvals in each multimodels
             # vision
-            W_v = Latent_knn_graph_construct_numpy(cfg, feat_vision, device, symmetrize=True)
+            W_v = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_vision, device, symmetrize=False)
             v_vecs, v_vals = laplacian_main_sparse(W_v, cfg.laplacian_mat.k)
 
             #language
-            W_t = Latent_knn_graph_construct_numpy(cfg, feat_language, device, symmetrize=True)
+            W_t = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_language, device, symmetrize=False)
             t_vecs, t_vals = laplacian_main_sparse(W_t, cfg.laplacian_mat.k)
 
             # cpu -> gpu and np.arrary -> torch.tensor and adding batchsize

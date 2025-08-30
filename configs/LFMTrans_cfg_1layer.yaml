@@ -1,17 +1,17 @@
 seed: 2025
 
 deice_gpu: 0
-save: 39
+save: 54
 
 knngraph:
-  k: 20
+  k: 50
   sigma: 1
   knn_fn: L2 # 'ip' or 'L2'
   W_full_fn: L2 # 'ip' or 'L2'
   W_fn: raw # 'heat_kernel' or 'inv' or 'raw'
 
 laplacian_mat:
-  k: 2000 # K eigenvectors for using in decomposition
+  k: 1000 # K eigenvectors for using in decomposition
 
 fm_retrieval:
   metric: L2 # 'ip' or 'L2'
