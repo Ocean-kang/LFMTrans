@@ -30,15 +30,15 @@ def fmap2pointmap(C12, evecs_x, evecs_y):
     Returns:
         p2p: point-to-point map (shape y -> shape x). [V2]
     """
-    return nn_query(torch.matmul(evecs_x, C12.t()), evecs_y)
+    return nn_query(torch.matmul(evecs_x, C12.t()), evecs_y, dim=1)
 
 def fmap2pointmap_norm(C12, evecs_x, evecs_y):
-    C12 = C12 / (C12.norm() + 1e-8)
+    # C12 = C12 / (C12.norm() + 1e-8)
     evecs_x = F.normalize(evecs_x, dim=0)
     evecs_y = F.normalize(evecs_y, dim=0)
     proj = torch.matmul(evecs_x, C12.t())
     proj = torch.nan_to_num(proj)
-    return nn_query(proj, evecs_y)
+    return nn_query(proj, evecs_y, dim=1)
 
 def deepfmap2pointmap(C12, evecs_x, evecs_y, feat_x, feat_y):
     """

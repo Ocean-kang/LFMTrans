@@ -30,12 +30,8 @@ def fmap_retrieval(cfg, Cxy, vec_x, vec_y, metric: str='L2'):
     elif metric == 'ip':
         Tran_x = torch.matmul(vec_x, Cxy.transpose(1, 0)) # [Vx, n]
 
-        # Normalize both to unit vectors
-        Tran_x_n = F.normalize(Tran_x, p=2, dim=1) # [Vx, n]
-        vec_y_n = F.normalize(vec_y, p=2, dim=1)   # [Vy, n]
-
         # Cosine similarity = dot product of normalized vectors
-        sim = torch.matmul(Tran_x_n, vec_y_n.T) # [Vx, Vy]
+        sim = torch.matmul(Tran_x, vec_y.T) # [Vx, Vy]
 
         # Get most similar Y point for each transformed X point
         p2p = torch.argmax(sim, dim=1) # [Vx]
@@ -73,8 +69,8 @@ def fmap_retrieval_norm(cfg, Cxy, vec_x, vec_y, metric: str='L2'):
         vec_y   = torch.nan_to_num(vec_y)
 
         # Normalize both to unit vectors
-        Tran_x_n = F.normalize(Tran_x, p=2, dim=1) # [Vx, n]
-        vec_y_n = F.normalize(vec_y, p=2, dim=1)   # [Vy, n]
+        Tran_x_n = F.normalize(Tran_x, p=2, dim=0) # [Vx, n]
+        vec_y_n = F.normalize(vec_y, p=2, dim=0)   # [Vy, n]
 
         # Cosine similarity = dot product of normalized vectors
         sim = torch.matmul(Tran_x_n, vec_y_n.T) # [Vx, Vy]
@@ -120,12 +116,8 @@ def deepfmap_retrieval(cfg, Cxy, vec_x, vec_y, feat_x, feat_y, metric: str='L2')
         feat_x_trans_C = torch.matmul(feat_x_trans, Cxy.transpose(1, 0)) # [Vx, n]
         feat_x_trans_C_Y = torch.matmul(vec_y.t(), feat_x_trans_C.t()) # [Vx, Dx]
 
-        # Normalize both to unit vectors
-        feat_x_trans_C_Y_n = F.normalize(feat_x_trans_C_Y, p=2, dim=1) # [Vx, Dx]
-        feat_y_n = F.normalize(feat_y, p=2, dim=1)  # [Vx, Dx]
-
         # Cosine similarity = dot product of normalized vectors
-        sim = torch.matmul(feat_x_trans_C_Y_n, feat_y_n.T) # [Vx, Vy]
+        sim = torch.matmul(feat_x_trans_C_Y, feat_y.T) # [Vx, Vy]
 
         # Get most similar Y point for each transformed X point
         p2p = torch.argmax(sim, dim=1) # [Vx]
