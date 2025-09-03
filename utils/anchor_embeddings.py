@@ -33,7 +33,7 @@ def anchor_embeddings_compute_unsupervised(
 
     n_anchor = cfg.anchor.n_anchors
     n_cls, d = feat_a.shape
-    assert feat_b.shape == (n_cls, d), "feat_a/feat_b shape mismatch"
+    assert feat_b.shape[0] == n_cls, "feat_a/feat_b shape mismatch"
     assert 0 < n_anchor <= n_cls, f"n_anchor={n_anchor} out of range 1..{n_cls}"
 
     anchor_idx = torch.randperm(n_cls, device=feat_a.device)[:n_anchor]

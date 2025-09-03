@@ -8,7 +8,7 @@ anchor:
   metric: ip # 'L2' or 'ip'
 
 knngraph:
-  k: 20
+  k: 50
   sigma: 1
   knn_fn: L2 # 'ip' or 'L2'
   W_full_fn: L2 # 'ip' or 'L2'
@@ -23,9 +23,9 @@ fm_retrieval:
 model:
   text_dimension: 4096
   vision_dimension: 1024
-  nums_epoch_proj: 15000
+  nums_epoch_proj: 40000
 
-  lr_projector: 0.00005
+  lr_projector: 0.00003
   DINOv2_BACKBONE_SIZE: large # small, base, large, giant
 
 train:
