@@ -1,7 +1,7 @@
 import torch
 from torch.functional import F
 
-from .fmap_util import fmap2pointmap, deepfmap2pointmap, fmap_deep_feature_nn, fmap_deep_feature_nn_general, fmap2pointmap_norm
+from .fmap_util import fmap2pointmap, deepfmap2pointmap, fmap_deep_feature_nn, fmap_deep_feature_nn_general, fmap2pointmap_norm, fmap2pointmap_unsupervised
 
 def fmap_retrieval(cfg, Cxy, vec_x, vec_y, metric: str='L2'):
     """
@@ -79,7 +79,31 @@ def fmap_retrieval_norm(cfg, Cxy, vec_x, vec_y, metric: str='L2'):
         p2p = torch.argmax(sim, dim=1) # [Vx]
 
         return p2p
- 
+
+def fmap_retrieval_unsupervised(cfg, Cxy, vec_x, vec_y, metric: str='L2'):
+    """
+    Use Fuction map to retrieve poitwise correspondence based on metric
+
+    Args:
+        cfg: configuration object.
+        Cxy: Latent Function Map Matrix. [n, n]
+        vec_x: eigenvectors of source shape X [n, Vx]
+        vec_y: eigenvectors of target shape Y [n, Vy]
+        metric: 'L2' or 'ip'
+
+    Returns:
+        Correspendece matrix: feat_x Corresponding to feat_y.
+    """
+    metric = cfg.fm_retrieval.metric
+    assert metric in ['L2', 'ip'], f"Unsupported metric: {metric}, choose 'L2' or 'ip'."
+
+    # [n, V] --> [V, n]
+    vec_x = vec_x.permute(1, 0)
+    vec_y = vec_y.permute(1, 0)
+
+    if metric == 'L2':
+        return fmap2pointmap_unsupervised(Cxy, vec_x, vec_y)
+
 def deepfmap_retrieval(cfg, Cxy, vec_x, vec_y, feat_x, feat_y, metric: str='L2'):
     """
     Use Fuction map to retrieve poitwise correspondence based on metric

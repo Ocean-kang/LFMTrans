@@ -16,7 +16,7 @@ from utils.knngraph import Latent_knn_sysmmetric_graph_construct_numpy
 from utils.LatentFuncitonMap import laplacian_main_sparse
 from utils.shuffle_utils import select_samples_per_class, map_indices_to_class_labels, sample_features_per_class_coco, shuffle_features_and_labels, select_samples_per_class_mean
 from utils.fmap_retrieval import deepfmap_retrieval, accrucy_fn, fmap_retrieval_norm, fmap_retrieval
-from utils.anchor_embeddings import anchor_embeddings_compute_unsupervised
+from utils.anchor_embeddings import anchor_embeddings_compute_unsupervised, anchor_embeddings_compute_supervised
 from model.fmap_network import RegularizedFMNet
 
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -215,7 +215,9 @@ def eval_proj(cfg, feature_dict, device, _log):
         elif cfg.train.dataset == 'cocostuff':
             # v 1024, t 4096
             feat_language = feature_dict["llama3_features"]["llama3_coco"].to(device).float()
+            feat_language_raw = feature_dict["llama3_features"]["llama3_coco_unmean"].to(device).float()
             feat_vision = feature_dict["dinov2_features"]["dinov2_coco"].to(device).float()
+            feat_vision_raw = feature_dict["dinov2_synonym_features"]["dinov2_coco"].to(device).float()
             n_cls, dimension = feat_language.shape
             feat_labels_v = torch.arange(n_cls).to(device).float()
             feat_labels_t = torch.arange(n_cls).to(device).float()
@@ -249,7 +251,7 @@ def eval_proj(cfg, feature_dict, device, _log):
             t_vals = t_vals.unsqueeze(0)
 
             # anchor descriptor
-            feat_v_anchor, feat_t_anchor = anchor_embeddings_compute_unsupervised(cfg, feat_vision, feat_language)
+            feat_v_anchor, feat_t_anchor = anchor_embeddings_compute_supervised(cfg, feat_vision, feat_vision_raw, feat_language, feat_language_raw)
 
             # shuffle features
             feat_v_anchor, feat_labels_v = shuffle_features_and_labels(feat_v_anchor, feat_labels_v, cfg.seed)
@@ -628,4 +630,4 @@ def main(_run, _log):
         }
     }
 
-    eval_proj(cfg, feature_dict, device, _log)
+    eval_proj(cfg, feature_dict, device, _log) 

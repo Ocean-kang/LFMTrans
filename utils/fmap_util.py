@@ -18,6 +18,10 @@ def nn_query(feat_x, feat_y, dim=-2):
     p2p = dist.argmin(dim=dim)
     return p2p
 
+def nn_query_unsupervised(feat_x, feat_y, dim=-2):
+    dist = torch.cdist(feat_x, feat_y)  # [V1, V2]
+    return dist
+
 
 def fmap2pointmap(C12, evecs_x, evecs_y):
     """
@@ -31,6 +35,9 @@ def fmap2pointmap(C12, evecs_x, evecs_y):
         p2p: point-to-point map (shape y -> shape x). [V2]
     """
     return nn_query(torch.matmul(evecs_x, C12.t()), evecs_y, dim=1)
+
+def fmap2pointmap_unsupervised(C12, evecs_x, evecs_y):
+    return nn_query_unsupervised(torch.matmul(evecs_x, C12.t()), evecs_y, dim=1)
 
 def fmap2pointmap_norm(C12, evecs_x, evecs_y):
     # C12 = C12 / (C12.norm() + 1e-8)
