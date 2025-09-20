@@ -17,7 +17,7 @@ from utils.knngraph import Latent_knn_sysmmetric_graph_construct_numpy
 from utils.LatentFuncitonMap import laplacian_main_sparse
 from utils.shuffle_utils import select_samples_per_class, map_indices_to_class_labels, sample_features_per_class_coco, shuffle_features_and_labels, select_samples_per_class_mean
 from utils.fmap_retrieval import deepfmap_retrieval, accrucy_fn, fmap_retrieval_norm, fmap_retrieval, fmap_retrieval_unsupervised
-from utils.anchor_embeddings import anchor_embeddings_compute_unsupervised
+from utils.anchor_embeddings import anchor_embeddings_compute_unsupervised, anchor_embeddings_compute_supervised, anchor_matching
 from model.fmap_network import RegularizedFMNet
 
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -34,7 +34,7 @@ def create_basic_stream_logger(format):
     return logger
 
 ex.logger = create_basic_stream_logger('%(levelname)s - %(name)s - %(message)s')
-ex.add_config('./configs/LFMTrans_cfg_anchor_unsupervised.yaml')
+ex.add_config('./configs/LFMTrans_cfg_anchor_cluster.yaml')
 
 cudnn.enabled = True
 cudnn.benchmark = False
@@ -212,78 +212,9 @@ def eval_proj_unsupervised(cfg, feature_dict, clusterer, device, _log):
             _log.info(f"Train Finished - prototype - Cxy_norm/Cyx_norm/Avg accrucy_norm: {accurcy_Cxy_norm:.4f}/{accurcy_Cyx_norm:.4f}/{accrucy_norm:.4f}")
             
         elif cfg.train.dataset == 'cocostuff':
-            # v 1024, t 4096
-            feat_language = feature_dict["llama3_features"]["llama3_coco"].to(device).float()
-            feat_vision = feature_dict["dinov2_features"]["dinov2_coco"].to(device).float()
-            n_cls, dimension = feat_language.shape
-            feat_labels_v = torch.arange(n_cls).to(device).float()
-            feat_labels_t = torch.arange(n_cls).to(device).float()
-
-            # compute once eigenvecs and eigenvals in each multimodels
-            # vision
-            W_v = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_vision, device, symmetrize=False)
-            v_vecs, v_vals = laplacian_main_sparse(W_v, cfg.laplacian_mat.k)
-
-            #language
-            W_t = Latent_knn_sysmmetric_graph_construct_numpy(cfg, feat_language, device, symmetrize=False)
-            t_vecs, t_vals = laplacian_main_sparse(W_t, cfg.laplacian_mat.k)
-
-            # cpu -> gpu and np.arrary -> torch.tensor and adding batchsize
-            # vision
-            v_vecs = torch.from_numpy(v_vecs).to(device).float()
-            v_vals = torch.from_numpy(v_vals).to(device).float()
-            # language
-            t_vecs = torch.from_numpy(t_vecs).to(device).float()
-            t_vals = torch.from_numpy(t_vals).to(device).float()
-
-            # adding batch dimension
-            # vision
-            feat_vision = feat_vision.to(device)
-            v_vecs = v_vecs.unsqueeze(0)
-            v_vals = v_vals.unsqueeze(0)
-
-            # language
-            feat_language = feat_language.float().to(device)
-            t_vecs = t_vecs.unsqueeze(0)
-            t_vals = t_vals.unsqueeze(0)
-
-            # anchor descriptor
-            feat_v_anchor, feat_t_anchor = anchor_embeddings_compute_unsupervised(cfg, feat_vision, feat_language)
-
-            # shuffle features
-            feat_v_anchor, feat_labels_v = shuffle_features_and_labels(feat_v_anchor, feat_labels_v, cfg.seed)
-
-            # add btach size
-            feat_v_anchor = feat_v_anchor.unsqueeze(0)
-            feat_t_anchor = feat_t_anchor.unsqueeze(0)
-
-            # build regularized_funciton_map model
-            fm_net = RegularizedFMNet(bidirectional=True)
-            Cxy, Cyx = fm_net(feat_v_anchor, feat_t_anchor, v_vals, t_vals, v_vecs, t_vecs)
-
-            Cxy = Cxy.squeeze(0)
-            Cyx = Cyx.squeeze(0)
-            v_vecs = v_vecs.squeeze(0)
-            t_vecs = t_vecs.squeeze(0)
-
-            # Cxy
-            csr_index_Cxy = fmap_retrieval(cfg, Cxy, v_vecs, t_vecs)
-            # Cyx
-            csr_index_Cyx = fmap_retrieval(cfg, Cyx, t_vecs, v_vecs)
-            # Cxy
-            csr_index_Cxy_norm = fmap_retrieval_norm(cfg, Cxy, v_vecs, t_vecs)
-            # Cyx
-            csr_index_Cyx_norm = fmap_retrieval_norm(cfg, Cyx, t_vecs, v_vecs)
-
-            accurcy_Cxy = accrucy_fn(feat_labels_v, csr_index_Cxy)
-            accurcy_Cyx = accrucy_fn(feat_labels_v, csr_index_Cyx)
-            accurcy_Cxy_norm = accrucy_fn(feat_labels_v, csr_index_Cxy_norm)
-            accurcy_Cyx_norm = accrucy_fn(feat_labels_v, csr_index_Cyx_norm)
-
-            accrucy_norm = (accurcy_Cxy_norm + accurcy_Cyx_norm) / 2
-            accrucy = (accurcy_Cxy + accurcy_Cyx) / 2
-            _log.info(f"Train Finished - prototype - Cxy/Cyx/Avg accrucy: {accurcy_Cxy:.4f}/{accurcy_Cyx:.4f}/{accrucy:.4f}")
-            _log.info(f"Train Finished - prototype - Cxy_norm/Cyx_norm/Avg accrucy_norm: {accurcy_Cxy_norm:.4f}/{accurcy_Cyx_norm:.4f}/{accrucy_norm:.4f}")
+            feat_language_raw = feature_dict["llama3_features"]["llama3_coco_unmean"].to(device).float()
+            feat_vision_raw = feature_dict["dinov2_synonym_features"]["dinov2_coco"].to(device).float()
+            anchor_matching(cfg, feature_dict, feat_vision_raw, feat_language_raw, device, _log)
 
     return None
 

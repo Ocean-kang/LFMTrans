@@ -4,18 +4,20 @@ deice_gpu: 0
 save: 2
 
 anchor:
-  n_anchors: 6
-  metric: ip # 'L2' or 'ip'
+  n_anchors: 160
+  cls_anchors: 3 # 'L2' or 'ip'
+  shuffle: true
+  metric: ip
 
 knngraph:
-  k: 6
+  k: 10
   sigma: 1
   knn_fn: L2 # 'ip' or 'L2'
   W_full_fn: L2 # 'ip' or 'L2'
   W_fn: inv # 'heat_kernel' or 'inv' or 'raw'
 
 laplacian_mat:
-  k: 9 # K eigenvectors for using in decomposition
+  k: 50 # K eigenvectors for using in decomposition
 
 fm_retrieval:
   metric: L2 # 'ip' or 'L2'
@@ -28,7 +30,7 @@ model:
 train:
   samples: 20
   type: prototype # photo, mask, prototype
-  dataset: CIFAR-10 # cocostuff, CIFAR-10, CIFAR-100
+  dataset: cocostuff # cocostuff, CIFAR-10, CIFAR-100
 
 permute:
   metric: 'L2' # 'ip' or 'L2'
