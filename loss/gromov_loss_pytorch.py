@@ -257,9 +257,16 @@ if __name__ == "__main__":
         tol=1e-9, normalize_cost=False, device=device, verbose=True
     )
 
+    # SGW implement
+    from gromov_loss_SGW import SGW
+    SGW_implement = SGW()
+    loss = SGW_implement(Xs_t, Xt_t)
+
     # Compare couplings
     T_torch_np = T_torch
     T_pot_np = gw_coupling_pot
 
     draw(X_s, X_t, T_torch.to('cpu').numpy(), log_torch, 'torch')
     draw(X_s, X_t, T_pot_np, log_pot, 'ot')
+
+    breakpoint()
