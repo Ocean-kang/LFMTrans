@@ -630,4 +630,4 @@ def main(_run, _log):
         }
     }
 
-    eval_proj(cfg, feature_dict, device, _log) 
+    eval_proj(cfg, feature_dict, device, _log)
