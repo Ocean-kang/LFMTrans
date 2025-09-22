@@ -13,6 +13,7 @@ from sklearn.cluster import KMeans
 from scipy.optimize import linear_sum_assignment
 
 from utils.kmeans import eval_kmeans_itsamatch
+from utils.kmeans import train_kmeans_faiss as train_kmeans
 from utils.knngraph import Latent_knn_sysmmetric_graph_construct_numpy
 from utils.LatentFuncitonMap import laplacian_main_sparse
 from utils.shuffle_utils import select_samples_per_class, map_indices_to_class_labels, sample_features_per_class_coco, shuffle_features_and_labels, select_samples_per_class_mean
@@ -48,23 +49,21 @@ def eval_proj_unsupervised(cfg, feature_dict, clusterer, device, _log):
     if TRAINTYPE == 'prototype':
         if cfg.train.dataset == 'CIFAR-10':
             # v 1536, t 1024 loading embeddings
-            feat_language = feature_dict["cifar-10"]["train"]["all-Roberta-large-v1"].to(device).float()
-            feat_vision = feature_dict["cifar-10"]["train"]["dinov2"].to(device).float()
-            feat_labels = feature_dict["cifar-10"]["train"]["labels"].to(device).float()
+            feat_language = feature_dict["cifar-10"]["train"]["all-Roberta-large-v1"].cpu().float()
+            feat_vision = feature_dict["cifar-10"]["train"]["dinov2"].cpu().float()
+            feat_labels = feature_dict["cifar-10"]["train"]["labels"].cpu().float()
 
-            # clusterer
+            # cluster GPU
+            n_cls = feat_language.shape[0]
+            feat_v_clustered, cluster_assignments = train_kmeans(feat_vision, k=n_cls, device='cuda',
+                                                        gpu_index=[0], metric='ip', return_idx=True)
+            # clusterer cpu
             print('start clustering')
             # cluster_dict = eval_kmeans_itsamatch(feat_language, feat_vision, feat_labels, clusterer, cfg.seed)
             # feat_v_clustered = cluster_dict['feat_v_clustered']
             # feat_v_subsampled = cluster_dict['feat_v_subsampled']
             # cluster_assignments = cluster_dict['cluster_assignments']
             # labels_subsampled = cluster_dict['labels_subsampled']
-            with open('./cluster/feat_cluster.pkl', 'rb') as f1:
-                feat_v_clustered = pkl.load(f1)
-            with open('./cluster/cluster_assignments.pkl', 'rb') as f2:
-                cluster_assignments = pkl.load(f2)
-            with open('./cluster/labels_subsampled.pkl', 'rb') as f3:
-                labels_subsampled = pkl.load(f3)
             print('clustering finished')
 
             # prototype
@@ -122,7 +121,7 @@ def eval_proj_unsupervised(cfg, feature_dict, clusterer, device, _log):
 
             prediction = permutation[cluster_assignments]
 
-            accuracy = (prediction == labels_subsampled).float().mean().item()
+            accuracy = (prediction == feat_labels).float().mean().item()
 
             _log.info(f"Finished - prototype - accrucy: {accuracy:.4f}")
 
