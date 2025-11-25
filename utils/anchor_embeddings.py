@@ -8,7 +8,7 @@ from utils.shuffle_utils import shuffle_features_and_labels
 from model.fmap_network import RegularizedFMNet
 from utils.fmap_retrieval import accrucy_fn, fmap_retrieval_norm, fmap_retrieval
 from utils.knngraph import Latent_knn_sysmmetric_graph_construct_numpy
-from utils.LatentFuncitonMap import laplacian_main_sparse
+from utils.laplacian_utils import laplacian_main_sparse
 
 def L2_compute(X: torch.Tensor) -> torch.Tensor:
     """Compute pairwise Euclidean distance matrix."""
