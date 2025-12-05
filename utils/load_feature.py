@@ -46,11 +46,11 @@ def load_feature_llama_trans(dataset):
 def load_feature_mpnet(dataset):
 
     ret_dict ={}
-    mpnet_path = Path(f'../itsamatchs/SavingEmbedding/val/a_itsamatch_more/feat_mpnet_{dataset}_S2P0_27_28_29_8_12_26_30.pkl')
-    dinov2_patchtoken_path = Path(f'../itsamatchs/SavingEmbedding/val/a_itsamatch_more/feat_dinov2_patch_{dataset}_L.pkl')
+    mpnet_path = Path(f'./itsamatch_more/feat_mpnet_{dataset}_S2P0_27_28_29_8_12_26_30.pkl')
+    dinov2_patchtoken_path = Path(f'./itsamatch_more/feat_dinov2_patch_{dataset}_L.pkl')
     if dataset in ['ImageNet-100', 'CIFAR-100']:
-        mpnet_path_unmean = Path(f'../itsamatchs/SavingEmbedding/val/a_itsamatch_more/feat_mpnet_{dataset}_S2P0_27_28_29_8_12_26_30_unmean.pkl')
-        dinov2_patchtoken_unmean_path = Path(f'../itsamatchs/SavingEmbedding/val/a_itsamatch_more/feat_synonym_dinov2_{dataset}_L.pkl')
+        mpnet_path_unmean = Path(f'./itsamatch_more/feat_mpnet_{dataset}_S2P0_27_28_29_8_12_26_30_unmean.pkl')
+        dinov2_patchtoken_unmean_path = Path(f'./itsamatch_more/feat_synonym_dinov2_{dataset}_L.pkl')
         ret_dict['mpnet_unmean'] = pkl_feat_load(mpnet_path_unmean).cpu().float()
         ret_dict['patch_unmean'] = pkl_feat_load(dinov2_patchtoken_unmean_path).cpu().float()
         
@@ -78,4 +78,4 @@ def mpnet_features(datasets):
 
 if __name__ == '__main__':
     datasets = ['cocostuff', '150', '847', 'voc20', 'voc20b', 'pc59', 'ImageNet-100', 'CIFAR-100']
-    feature_dict = llama_trans_features(datasets)
+    feature_dict = mpnet_features(datasets) # llama_trans_features(datasets)
