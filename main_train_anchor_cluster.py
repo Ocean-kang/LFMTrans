@@ -15,7 +15,7 @@ from scipy.optimize import linear_sum_assignment
 from utils.kmeans import eval_kmeans_itsamatch
 from utils.kmeans import train_kmeans_faiss as train_kmeans
 from utils.knngraph import Latent_knn_sysmmetric_graph_construct_numpy
-from utils.LatentFuncitonMap import laplacian_main_sparse
+from utils.laplacian_utils import laplacian_main_sparse
 from utils.shuffle_utils import select_samples_per_class, map_indices_to_class_labels, sample_features_per_class_coco, shuffle_features_and_labels, select_samples_per_class_mean
 from utils.fmap_retrieval import deepfmap_retrieval, accrucy_fn, fmap_retrieval_norm, fmap_retrieval, fmap_retrieval_unsupervised
 from utils.anchor_embeddings import anchor_embeddings_compute_unsupervised, anchor_embeddings_compute_supervised, anchor_matching

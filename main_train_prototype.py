@@ -13,7 +13,7 @@ from easydict import EasyDict as edict
 from model.Encoder import LinearProj
 from loss.proj_loss import proj_loss, proj_loss_sparse, proj_loss_sparse_oncefmap
 from utils.knngraph import Latent_knn_graph_construct_numpy
-from utils.LatentFuncitonMap import laplacian_main_sparse
+from utils.laplacian_utils import laplacian_main_sparse
 from utils.shuffle_utils import shuffle_tensor, select_samples_per_class, map_indices_to_class_labels
 from utils.fmap_retrieval import deepfmap_retrieval, accrucy_fn, cos_sim_retrieval
 from utils.permutation_compute import compute_permutation_matrices

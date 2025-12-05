@@ -14,7 +14,7 @@ from model.Encoder import LinearProjText, Translator
 from loss.proj_loss import proj_loss_sparse_oncefmap
 from loss.gromov_loss import SGW
 from utils.knngraph import Latent_knn_graph_construct_numpy, Latent_knn_sysmmetric_graph_construct_numpy
-from utils.LatentFuncitonMap import laplacian_main_sparse
+from utils.laplacian_utils import laplacian_main_sparse
 from utils.shuffle_utils import shuffle_tensor, select_samples_per_class, map_indices_to_class_labels, sample_features_per_class_coco, shuffle_features_and_labels
 from utils.fmap_retrieval import deepfmap_retrieval, accrucy_fn, cos_sim_retrieval, fmap_retrieval
 from utils.permutation_compute import compute_permutation_matrices

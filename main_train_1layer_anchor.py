@@ -13,7 +13,7 @@ from easydict import EasyDict as edict
 from model.Encoder import LinearProjText
 from loss.gromov_loss import SGW
 from utils.knngraph import Latent_knn_sysmmetric_graph_construct_numpy
-from utils.LatentFuncitonMap import laplacian_main_sparse
+from utils.laplacian_utils import laplacian_main_sparse
 from utils.shuffle_utils import select_samples_per_class, map_indices_to_class_labels, sample_features_per_class_coco, shuffle_features_and_labels, select_samples_per_class_mean
 from utils.fmap_retrieval import deepfmap_retrieval, accrucy_fn, fmap_retrieval_norm, fmap_retrieval
 from utils.anchor_embeddings import anchor_embeddings_compute_unsupervised
