@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from utils.knngraph import Latent_knn_graph_construct, Latent_knn_graph_construct_numpy
-from utils.LatentFuncitonMap import build_normalized_laplacian_matrix, laplacian_eigendecomposition, laplacian_main_sparse
+from utils.laplacian_utils import build_normalized_laplacian_matrix, laplacian_eigendecomposition, laplacian_main_sparse
 from model.fmap_network import RegularizedFMNet
 from loss.fmap_loss import SURFMNetLoss, SquaredFrobeniusLoss
 from loss.ot_loss import SW
