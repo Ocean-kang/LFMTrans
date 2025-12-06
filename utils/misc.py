@@ -162,3 +162,74 @@ def adjustable_exponential_decay_lr(epoch, optimizer,
 
         param_group['lr'] = initial_lr * math.pow(base_decay, math.pow(t, exponent))
         print(f"epoch:{epoch:4d}, initial_lr:{param_group['initial_lr']}, running_lr:{param_group['lr']}")
+
+from scipy.optimize import linear_sum_assignment as linear_assignment
+
+def structure_retrieval(feat_1, feat_2, ret_sim = False, use_HM = False, ret_idx=False):
+    '''
+
+    Args:
+        feat_1: N_cls x D2
+        feat_2: N_cls x D1
+
+        D1 doesn't have to be equal to D2
+
+    Returns:
+        retrieval ratio
+    '''
+
+    feat_1_ = feat_1 / feat_1.norm(dim=-1, keepdim=True)
+    feat_2_ = feat_2 / feat_2.norm(dim=-1, keepdim=True)
+    sim_1 = feat_1_ @ feat_1_.transpose(1, 0)
+    sim_2 = feat_2_ @ feat_2_.transpose(1, 0)
+
+    N = feat_1_.shape[0]
+
+    sim_1 = sim_1[~torch.eye(N, dtype=torch.bool)].view(N, -1)
+    sim_2 = sim_2[~torch.eye(N, dtype=torch.bool)].view(N, -1)
+
+    sim_1 = sim_1 - sim_1.mean(-1).unsqueeze(1)
+    sim_2 = sim_2 - sim_2.mean(-1).unsqueeze(1)
+    sim_1_norm = sim_1 / sim_1.norm(dim=-1, keepdim=True)
+    sim_2_norm = sim_2 / sim_2.norm(dim=-1, keepdim=True)
+
+    # sim_1_norm = (sim_1 - sim_1.min()) / (sim_1.max() - sim_1.min())
+    # sim_2_norm = (sim_2 - sim_2.min()) / (sim_2.max() - sim_2.min())
+
+
+    sim_1_2 = sim_1_norm @ sim_2_norm.transpose(1, 0)
+    if not use_HM:
+        idx = sim_1_2.argmax(0).numpy()
+        ret_flag = (idx == list(range(len(sim_1_2))))
+        retrieval_structure = ret_flag.sum() / len(sim_1_2)
+        if ret_idx:
+            return retrieval_structure, np.where(ret_flag)[0]
+        elif ret_sim:
+            return sim_1_2
+        return retrieval_structure
+    else:
+        # Hungarian Matching.
+        m = linear_assignment(1 - sim_1_2.cpu().numpy())
+        retrieval_ratio_HM = (m[1] == list(range(len(sim_1_2)))).sum() / len(sim_1_2)
+        if ret_idx:
+            return retrieval_ratio_HM, m[1]
+        return retrieval_ratio_HM
+
+
+def cos_sim_retrieval(feat_1, feat_2):
+    '''
+
+    Args:
+        feat_1: N_cls x D2
+        feat_2: N_cls x D1
+
+    Returns:
+        retrieval ratio
+    '''
+    feat_1_ = feat_1 / feat_1.norm(dim=-1, keepdim=True)
+    feat_2_ = feat_2 / feat_2.norm(dim=-1, keepdim=True)
+    sim = (feat_1_ @ feat_2_.transpose(1, 0)).cpu()
+    idx = sim.argmax(0)
+    retrieval_sim = (idx == torch.Tensor(range(len(sim)))).sum() / len(sim)
+
+    return retrieval_sim
