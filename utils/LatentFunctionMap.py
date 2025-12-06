@@ -156,3 +156,46 @@ class LatentFunctionMap():
             Pxy_k = fmap2pointmap(Cxy_k, v_vecs[:k].t(), t_vecs[:k].t())
             Cxy_k = pointmap2fmap(Pxy_k, v_vecs[:next_k].t(), t_vecs[:next_k].t())
         return Pxy_k
+    
+
+class DeepFunctionMap:
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.fm_net = RegularizedFMNet(bidirectional=True)
+
+    def Spectral_Basis(self, v, t, device):
+        
+        # vision
+        W_v = Latent_knn_sysmmetric_graph_construct_numpy(self.cfg, v, device, symmetrize=False)
+        v_vecs, v_vals = laplacian_main_sparse(W_v, self.cfg.laplacian_mat.k)
+        # language
+        W_t = Latent_knn_sysmmetric_graph_construct_numpy(self.cfg, t, device, symmetrize=False)
+        t_vecs, t_vals = laplacian_main_sparse(W_t, self.cfg.laplacian_mat.k)
+
+        # cpu -> gpu and np.arrary -> torch.tensor
+        # vision
+        v_vecs = torch.from_numpy(v_vecs).to(device).float()
+        v_vals = torch.from_numpy(v_vals).to(device).float()
+        # language
+        t_vecs = torch.from_numpy(t_vecs).to(device).float()
+        t_vals = torch.from_numpy(t_vals).to(device).float()
+
+        return (v_vecs, t_vecs, v_vals, t_vals)
+    
+    def FunctionMap(self, feat_v, feat_t, v, t, device):
+
+        v_vecs, t_vecs, v_vals, t_vals = self.Spectral_Basis(v, t, device)
+        
+        # adding batch dimension
+        # vision
+        feat_v = feat_v.unsqueeze(0).to(device)
+        v_vecs = v_vecs.unsqueeze(0)
+        v_vals = v_vals.unsqueeze(0)
+        # language
+        feat_t = feat_t.unsqueeze(0).float().to(device)
+        t_vecs = t_vecs.unsqueeze(0)
+        t_vals = t_vals.unsqueeze(0)
+        # build regularized_funciton_map model
+        Cxy, Cyx = self.fm_net(feat_v, feat_t, v_vals, t_vals, v_vecs, t_vecs)
+
+        return Cxy, Cyx, v_vecs, v_vals, t_vecs, t_vals
