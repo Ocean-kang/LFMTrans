@@ -13,7 +13,7 @@ from model.Encoder import LinearProjText
 
 from utils.LatentFunctionMap import DeepFunctionMap
 from utils.permutation_compute import compute_permutation_matrices
-from utils.load_feature import mpnet_features, llama_features
+from utils.load_feature import mpnet_features, llama_features, llama_unmean_features, mpnet_unmean_features
 from utils.misc import cos_sim_retrieval, structure_retrieval
 
 from loss.proj_loss import projector_loss
@@ -62,16 +62,15 @@ def train(cfg, feature_dict, functionmap, model, criterions, epoch, device, _log
         t = t.to(device)  # [B, vision_dimension]
 
         optimizer.zero_grad()
-        feat_v = v # [B, vision_dimension]
-        feat_t = model(t)  # [B, vision_dimension]
+        feat_v = v # [N_cls, vision_dimension]
+        feat_t = model(t)  # [N_cls, vision_dimension]
 
         # FunctionMap & Permutation
         Cxy, Cyx, v_vecs, v_vals, t_vecs, t_vals = functionmap.FunctionMap(feat_v, feat_t, v, t, device)
-        Pxy, Pyx = compute_permutation_matrices(cfg, feat_v, feat_t)
-
         # Add batchsize
         feat_v = feat_v.unsqueeze(0)
         feat_t = feat_t.unsqueeze(0)
+        Pxy, Pyx = compute_permutation_matrices(cfg, feat_v, feat_t)
 
         # Loss
         loss_dict = criterions(feat_v, feat_t, Cxy, Cyx, t_vals, v_vals, t_vecs, v_vecs, Pxy, Pyx)
@@ -152,6 +151,9 @@ def eval(cfg, feature_dict, model, epoch, device, _log):
     # str_ImageNet100 = structure_retrieval(t_ImageNet100_proj.cpu(), v_ImageNet100.cpu())
     # str_CIFAR100 = structure_retrieval(t_CIFAR100_proj.cpu(), v_CIFAR100.cpu())
 
+    # TODO: FunctionMap retrieval
+    
+
     # _log.info(f"[coco/150/847/pc59/voc20/voc20b/ImageNet-100/CIFAR-100]    str:/{str_coco:.4f}/{str_a150:.4f}/{str_a847:.4f}/{str_pc59:.4f}/{str_voc20:.4f}/{str_voc20b:.4f}/{str_ImageNet100:.4f}/{str_CIFAR100:.4f}")
     # _log.info(f"[coco/150/847/pc59/voc20/voc20b/ImageNet-100/CIFAR-100]    csr:/{csr_coco:.4f}/{csr_a150:.4f}/{csr_a847:.4f}/{csr_pc59:.4f}/{csr_voc20:.4f}/{csr_voc20b:.4f}/{csr_ImageNet100:.4f}/{csr_CIFAR100:.4f}")
 
@@ -184,9 +186,15 @@ def main(_run, _log):
     # Load Features_dict
     datasets = ['cocostuff', '150'] # ['cocostuff', '150', '847', 'voc20', 'voc20b', 'pc59', 'ImageNet-100', 'CIFAR-100']
     if cfg.train.text_model == "llama":
-        feature_dict = llama_features(datasets)
+        if cfg.train.type == "patch":
+            feature_dict = llama_features(datasets)
+        else:
+            feature_dict = llama_unmean_features(datasets)
     else:
-        feature_dict = mpnet_features(datasets)
+        if cfg.train.type == "patch":
+            feature_dict = mpnet_features(datasets)
+        else:
+            feature_dict = mpnet_unmean_features(datasets)
     
     # Training
     for epoch in range(cfg.model.nums_epoch_proj):
@@ -197,7 +205,7 @@ def main(_run, _log):
 
         train(cfg, feature_dict, deepfuctionmap, model_proj, criterion_proj, epoch, device, _log)
     
-    torch.save(model_proj.state_dict(), './weight/proj_weight.pth')
+    torch.save(model_proj.state_dict(), f'./weight/proj_weight_{cfg.save}.pt')
 
 
 
