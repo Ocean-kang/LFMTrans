@@ -1,7 +1,7 @@
 seed: 2025
 
 deice_gpu: 0
-save: 54
+save: 0
 
 knngraph:
   k: 10
@@ -36,7 +36,7 @@ permute:
 loss:
   w_bij: 1.0
   w_orth: 1.0
-  w_lap: 0.0
+  w_lap: 1.0
   w_align: 1.0
   w_ot: 100.0
   L_ot: 200
