@@ -67,7 +67,7 @@ def main(_run, _log):
     torch.multiprocessing.set_start_method('spawn')
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    datasets = ['cocostuff', '150', '847', 'voc20', 'voc20b', 'pc59', 'ImageNet-100', 'CIFAR-100']
+    datasets = ["cocostuff"] # ['cocostuff', '150', '847', 'voc20', 'voc20b', 'pc59', 'ImageNet-100', 'CIFAR-100']
     feature_dict = llama_trans_features(datasets)
 
     eval_proj(cfg, feature_dict, device, _log)
