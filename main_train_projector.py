@@ -15,6 +15,8 @@ from utils.LatentFunctionMap import DeepFunctionMap
 from utils.permutation_compute import compute_permutation_matrices
 from utils.load_feature import mpnet_features, llama_features, llama_unmean_features, mpnet_unmean_features
 from utils.misc import cos_sim_retrieval, structure_retrieval
+from utils.fmap_retrieval import fmap_retrieval, accrucy_fn
+from utils.pairs_utils import get_retrieval_matrix
 
 from loss.proj_loss import projector_loss
 
@@ -161,15 +163,25 @@ def eval(cfg, feature_dict, model, epoch, device, _log):
     # str_ImageNet100 = structure_retrieval(t_ImageNet100_proj.cpu(), v_ImageNet100.cpu())
     # str_CIFAR100 = structure_retrieval(t_CIFAR100_proj.cpu(), v_CIFAR100.cpu())
 
-    # TODO: FunctionMap retrieval
-    
+    # TODO: FunctionMap L2 retrieval
+    deepfuctionmap = DeepFunctionMap(cfg=cfg)
+    Cxy_coco, Cyx_coco, v_vecs_coco, v_vals_coco, t_vecs_coco, t_vals_coco = deepfuctionmap.FunctionMap(v_coco, t_coco_proj, v_coco, t_coco, device)
+    Cxy_a150, Cyx_a150, v_vecs_a150, v_vals_a150, t_vecs_a150, t_vals_a150 = deepfuctionmap.FunctionMap(v_a150, t_a150_proj, v_a150, t_a150, device)
+    # Cxy_a847, Cyx_a847, v_vecs_a847, v_vals_a847, t_vecs_a847, t_vals_a847 = deepfuctionmap.FunctionMap(v_a847, t_a847_proj, v_a847, t_a847, device)
+    # COCO
+    P_coco = fmap_retrieval(cfg, Cyx_coco.squeeze(0), t_vecs_coco.squeeze(0), v_vecs_coco.squeeze(0), cfg.fm_retrieval.metric)
+    fmr_coco = accrucy_fn(torch.arange(P_coco.shape[0]), P_coco.cpu())
+    # a150
+    P_a150 = fmap_retrieval(cfg, Cyx_a150.squeeze(0), t_vecs_a150.squeeze(0), v_vecs_a150.squeeze(0), cfg.fm_retrieval.metric)
+    fmr_a150 = accrucy_fn(torch.arange(P_a150.shape[0]), P_a150.cpu())
 
     # _log.info(f"[coco/150/847/pc59/voc20/voc20b/ImageNet-100/CIFAR-100]    str:/{str_coco:.4f}/{str_a150:.4f}/{str_a847:.4f}/{str_pc59:.4f}/{str_voc20:.4f}/{str_voc20b:.4f}/{str_ImageNet100:.4f}/{str_CIFAR100:.4f}")
     # _log.info(f"[coco/150/847/pc59/voc20/voc20b/ImageNet-100/CIFAR-100]    csr:/{csr_coco:.4f}/{csr_a150:.4f}/{csr_a847:.4f}/{csr_pc59:.4f}/{csr_voc20:.4f}/{csr_voc20b:.4f}/{csr_ImageNet100:.4f}/{csr_CIFAR100:.4f}")
-
+    # _log.info(f"[coco/150/847/pc59/voc20/voc20b/ImageNet-100/CIFAR-100]    fmr:/{fmr_coco:.4f}/{fmr_a150:.4f}/{fmr_a847:.4f}/{fmr_pc59:.4f}/{fmr_voc20:.4f}/{fmr_voc20b:.4f}/{fmr_ImageNet100:.4f}/{fmr_CIFAR100:.4f}")
 
     _log.info(f"Epoch - {epoch} - [coco/150]    str:/{str_coco:.4f}/{str_a150:.4f}")
     _log.info(f"Epoch - {epoch} - [coco/150]    csr:/{csr_coco:.4f}/{csr_a150:.4f}")
+    _log.info(f"Epoch - {epoch} - [coco/150]    fmr:/{fmr_coco:.4f}/{fmr_a150:.4f}")
 
     return None
 
