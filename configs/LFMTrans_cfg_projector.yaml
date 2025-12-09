@@ -28,6 +28,7 @@ train:
   text_model: llama # llama, mpnet
   batchsize: 1
   type: patch # patch, patch_unmean
+  sample: 10
   dataset: cocostuff # cocostuff, CIFAR-10, CIFAR-100
 
 permute:

@@ -48,8 +48,18 @@ def train(cfg, feature_dict, functionmap, model, criterions, epoch, device, _log
     lr = cfg.model.lr_projector
 
     # Raw data
-    v = feature_dict[f'{train_dataset}'][f'{train_type}']
-    t = feature_dict[f'{train_dataset}'][f'{train_text_model}']
+    v_unmean = feature_dict[f'{train_dataset}'][f'{train_type}'].float()
+    t_unmean = feature_dict[f'{train_dataset}'][f'{train_text_model}_unmean'].float()
+
+    _, NUMS_v, D_v = v_unmean.shape
+    _, NUMS_t, D_t = t_unmean.shape
+    indices_v = torch.randperm(NUMS_v)[:cfg.train.sample]
+    indices_t = torch.randperm(NUMS_t)[:cfg.train.sample]
+
+    v = v_unmean[:, indices_v, :]
+    t = t_unmean[:, indices_t, :]
+    v = v.reshape(-1, D_v)
+    t = t.reshape(-1, D_t)
 
     # Load model
     model = model.to(device)
@@ -184,26 +194,23 @@ def main(_run, _log):
     criterion_proj = projector_loss(cfg=cfg)
 
     # Load Features_dict
-    datasets = ['cocostuff', '150'] # ['cocostuff', '150', '847', 'voc20', 'voc20b', 'pc59', 'ImageNet-100', 'CIFAR-100']
+    datasets_train = ['cocostuff']
+    datasets_eval = ['cocostuff', '150'] # ['cocostuff', '150', '847', 'voc20', 'voc20b', 'pc59', 'ImageNet-100', 'CIFAR-100']
     if cfg.train.text_model == "llama":
-        if cfg.train.type == "patch":
-            feature_dict = llama_features(datasets)
-        else:
-            feature_dict = llama_unmean_features(datasets)
+        feature_dict_train = llama_unmean_features(datasets_train)
+        feature_dict_eval = llama_features(datasets_eval)
     else:
-        if cfg.train.type == "patch":
-            feature_dict = mpnet_features(datasets)
-        else:
-            feature_dict = mpnet_unmean_features(datasets)
+        feature_dict_train = mpnet_unmean_features(datasets_train)
+        feature_dict_eval = mpnet_features(datasets_eval)
     
     # Training
     for epoch in range(cfg.model.nums_epoch_proj):
 
         with torch.no_grad():
             model_proj.eval()
-            eval(cfg, feature_dict, model_proj, epoch, device, _log)
+            eval(cfg, feature_dict_eval, model_proj, epoch, device, _log)
 
-        train(cfg, feature_dict, deepfuctionmap, model_proj, criterion_proj, epoch, device, _log)
+        train(cfg, feature_dict_train, deepfuctionmap, model_proj, criterion_proj, epoch, device, _log)
     
     torch.save(model_proj.state_dict(), f'./weight/proj_weight_{cfg.save}.pt')
 
