@@ -1,40 +1,35 @@
 seed: 2025
 
 deice_gpu: 0
-
-knngraph:
-  k: 20
-  sigma: 1
-  knn_fn: L2 # 'ip' or 'L2'
-  W_full_fn: L2 # 'ip' or 'L2'
-  W_fn: heat_kernel # 'heat_kernel' or 'inv' or 'raw'
-
-laplacian_mat:
-  k: 130 # K eigenvectors for using in decomposition
-
-fm_retrieval:
-  metric: L2 # 'ip' or 'L2'
-
-model:
-  text_dimension: 1024
-  vision_dimension: 1536
-  nums_epoch: 10000
-  lr_proj: 0.00005
-  DINOv2_BACKBONE_SIZE: large # small, base, large, giant
+save: 0
 
 train:
+  dataset: cocostuff
   batchsize: 1
-  type: photo # photo, mask, prototype
-  dataset: CIFAR-100 # cocostuff, CIFAR-10, CIFAR-100
+  sample: 20
+  text_model: llama_unmean # llama_unmean, mpnet_unmean
+  type: patch_unmean # patch, patch_unmean
 
-permute:
-  metric: 'L2' # 'ip' or 'L2'
+knngraph:
+  k: 300
+  metric_knn: ip # 'ip', 'L2'
+  metric_laplacian: none # 'none', 'sym', 'rw'
 
-loss:
-  w_bij: 1.0
-  w_orth: 1.0
-  w_lap: 0.0
-  w_align: 1.0
-  w_ot: 100.0
-  L_ot: 200
-  bidirectional: false
+laplacian_mat:
+  k: 100 # K eigenvectors for using in decomposition
+
+anchor:
+  n_anchors: 300
+  cls_anchors: 2
+  metric: ip # 'L2' or 'ip'
+
+validation:
+  dataset: cocostuff
+  text_model: llama # llama, mpnet
+  type: patch
+
+fmap: 
+  type: anchor # anchor, raw, train
+  method: LFMtrans # LFMtrans, EOT
+
+
