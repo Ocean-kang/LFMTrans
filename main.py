@@ -82,7 +82,7 @@ def main(_run, _log):
         gt_labels = torch.arange(171)
         pred_xy = Pxy % 171
         pred_yx = Pyx % 171
-    breakpoint()
+
     tmp1 = accrucy_fn(gt_labels, pred_xy)
     print(tmp1)
 

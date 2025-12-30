@@ -27,12 +27,13 @@ class LFMapIpL2Combination(nn.Module):
         # KNN Graph Construction
         # IP KNNGraph
         cfg_ip = self.cfg
-        cfg_ip['knngraph']['metric'] = 'ip'
+        cfg_ip['knngraph']['metric_knn'] = 'ip'
         Knn_v_ip = knngraph(cfg_ip, feat_v, device)
         Knn_t_ip = knngraph(cfg_ip, feat_t, device)
+
         # L2 KNNGraph
         cfg_l2 = self.cfg
-        cfg_l2['knngraph']['metric'] = 'l2'
+        cfg_l2['knngraph']['metric_knn'] = 'L2'
         Knn_v_l2 = knngraph(cfg_l2, feat_v, device)
         Knn_t_l2 = knngraph(cfg_l2, feat_t, device)
 
