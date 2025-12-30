@@ -202,3 +202,183 @@ class LatentFunctionMap(nn.Module):
         Cyx = self.compute_functional_map_batch(B, A)
 
         return Cxy, Cyx
+    
+
+# Combination of FunctionMap
+class MultiConstraintFM(nn.Module):
+    """
+    Functional Map computation with multiple spectral constraints.
+    - Main basis: IP graph
+    - Auxiliary constraint: L2 graph
+    Supports batch computation and optional bidirectional maps.
+    """
+    def __init__(self, reg: float = 1e-6, alpha: float = 1.0, bidirectional: bool = True):
+        """
+        Args:
+            reg: float, regularization coefficient
+            alpha: float, weight of auxiliary (L2) constraint
+            bidirectional: bool, whether to compute Cxy and Cyx
+        """
+        super().__init__()
+        self.reg = reg
+        self.alpha = alpha
+        self.bidirectional = bidirectional
+
+    def compute_fm_batch(self, A_ip, B_ip, aux_X=None, aux_Y=None, alpha=1.0, reg=1e-6):
+        """
+        Compute Functional Map C for a batch, optionally with auxiliary bases.
+        
+        A_ip: [B, K_ip, n_x]  主基
+        B_ip: [B, K_ip, n_y]  主基目标
+        aux_X: [B, K_aux, n_x] 可选辅助基
+        aux_Y: [B, K_aux, n_y] 可选辅助基目标
+        alpha: 辅助基权重
+        reg: 正则化
+        """
+        B, K_ip, n_x = A_ip.shape
+        _, _, n_y = B_ip.shape
+
+        if aux_X is not None and aux_Y is not None:
+            # 将主基和辅助基拼接，alpha控制辅助基权重
+            A_aug = torch.cat([A_ip, alpha * aux_X], dim=2)  # [B, K_ip, n_x + n_aux]
+            B_aug = torch.cat([B_ip, alpha * aux_Y], dim=2)  # [B, K_ip, n_y + n_aux]
+        else:
+            A_aug, B_aug = A_ip, B_ip
+
+        # 构造正则化矩阵
+        reg_eye = reg * torch.eye(K_ip, device=A_ip.device).unsqueeze(0)  # [1, K_ip, K_ip]
+
+        # 求 AtA 和 BAt
+        AtA = torch.bmm(A_aug, A_aug.transpose(1,2)) + reg_eye  # [B, K_ip, K_ip]
+        BAt = torch.bmm(B_aug, A_aug.transpose(1,2))           # [B, K_ip, K_ip]
+
+        # 批量求解 C
+        C = torch.bmm(BAt, torch.linalg.inv(AtA))              # [B, K_ip, K_ip]
+        return C
+
+    def forward(self, evecs_ip_x, evecs_ip_y, evecs_l2_x=None, evecs_l2_y=None):
+        """
+        Compute FM with main (IP) and optional auxiliary (L2) constraints.
+        
+        Args:
+            feat_x: [B, Vx, C] source vertex features
+            feat_y: [B, Vy, C] target vertex features
+            evecs_ip_x: [B, K, Vx] IP graph eigenvectors source
+            evecs_ip_y: [B, K, Vy] IP graph eigenvectors target
+            evecs_l2_x: [B, K_l2, Vx] L2 graph eigenvectors source (optional)
+            evecs_l2_y: [B, K_l2, Vy] L2 graph eigenvectors target (optional)
+        
+        Returns:
+            Cxy, Cyx: functional maps
+        """
+        # 投影到主基（IP）
+        A_ip = evecs_ip_x  # [B, K, C]
+        B_ip = evecs_ip_y # [B, K, C]
+
+        # 投影到辅助基（L2）如果提供
+        if evecs_l2_x is not None and evecs_l2_y is not None:
+            A_l2 = evecs_l2_x  # [B, K_l2, C]
+            B_l2 = evecs_l2_y  # [B, K_l2, C]
+        else:
+            A_l2 = B_l2 = None
+
+        # X -> Y
+        Cxy = self.compute_fm_batch(A_ip, B_ip, A_l2, B_l2)
+
+        # Y -> X (可选双向)
+        if self.bidirectional:
+            Cyx = self.compute_fm_batch(B_ip, A_ip, B_l2, A_l2)
+        else:
+            Cyx = None
+
+        return Cxy, Cyx
+    
+# Combination of DeepFunctionMap
+class MultiConstraintDFM(nn.Module):
+    """
+    Functional Map computation with multiple spectral constraints.
+    - Main basis: IP graph
+    - Auxiliary constraint: L2 graph
+    Supports batch computation and optional bidirectional maps.
+    """
+    def __init__(self, reg: float = 1e-6, alpha: float = 1.0, bidirectional: bool = True):
+        """
+        Args:
+            reg: float, regularization coefficient
+            alpha: float, weight of auxiliary (L2) constraint
+            bidirectional: bool, whether to compute Cxy and Cyx
+        """
+        super(MultiConstraintDFM, self).__init__()
+        self.reg = reg
+        self.alpha = alpha
+        self.bidirectional = bidirectional
+
+    def compute_fm_batch(self, A_ip, B_ip, aux_X=None, aux_Y=None, alpha=1.0, reg=1e-6):
+        """
+        Compute Functional Map C for a batch, optionally with auxiliary bases.
+        
+        A_ip: [B, K_ip, n_x]  主基
+        B_ip: [B, K_ip, n_y]  主基目标
+        aux_X: [B, K_aux, n_x] 可选辅助基
+        aux_Y: [B, K_aux, n_y] 可选辅助基目标
+        alpha: 辅助基权重
+        reg: 正则化
+        """
+        B, K_ip, n_x = A_ip.shape
+        _, _, n_y = B_ip.shape
+
+        if aux_X is not None and aux_Y is not None:
+            # 将主基和辅助基拼接，alpha控制辅助基权重
+            A_aug = torch.cat([A_ip, alpha * aux_X], dim=2)  # [B, K_ip, n_x + n_aux]
+            B_aug = torch.cat([B_ip, alpha * aux_Y], dim=2)  # [B, K_ip, n_y + n_aux]
+        else:
+            A_aug, B_aug = A_ip, B_ip
+
+        # 构造正则化矩阵
+        reg_eye = reg * torch.eye(K_ip, device=A_ip.device).unsqueeze(0)  # [1, K_ip, K_ip]
+
+        # 求 AtA 和 BAt
+        AtA = torch.bmm(A_aug, A_aug.transpose(1,2)) + reg_eye  # [B, K_ip, K_ip]
+        BAt = torch.bmm(B_aug, A_aug.transpose(1,2))           # [B, K_ip, K_ip]
+
+        # 批量求解 C
+        C = torch.bmm(BAt, torch.linalg.inv(AtA))              # [B, K_ip, K_ip]
+        return C
+    
+
+    def forward(self, feat_x, feat_y, evecs_ip_x, evecs_ip_y, evecs_l2_x=None, evecs_l2_y=None):
+        """
+        Compute FM with main (IP) and optional auxiliary (L2) constraints.
+        
+        Args:
+            feat_x: [B, Vx, C] source vertex features
+            feat_y: [B, Vy, C] target vertex features
+            evecs_ip_x: [B, K, Vx] IP graph eigenvectors source
+            evecs_ip_y: [B, K, Vy] IP graph eigenvectors target
+            evecs_l2_x: [B, K_l2, Vx] L2 graph eigenvectors source (optional)
+            evecs_l2_y: [B, K_l2, Vy] L2 graph eigenvectors target (optional)
+        
+        Returns:
+            Cxy, Cyx: functional maps
+        """
+        # 投影到主基（IP）
+        A_ip = torch.bmm(evecs_ip_x, feat_x)  # [B, K, C]
+        B_ip = torch.bmm(evecs_ip_y, feat_y)  # [B, K, C]
+
+        # 投影到辅助基（L2）如果提供
+        if evecs_l2_x is not None and evecs_l2_y is not None:
+            A_l2 = torch.bmm(evecs_l2_x, feat_x)  # [B, K_l2, C]
+            B_l2 = torch.bmm(evecs_l2_y, feat_y)  # [B, K_l2, C]
+        else:
+            A_l2 = B_l2 = None
+
+        # X -> Y
+        Cxy = self.compute_fm_batch(A_ip, B_ip, A_l2, B_l2)
+
+        # Y -> X (可选双向)
+        if self.bidirectional:
+            Cyx = self.compute_fm_batch(B_ip, A_ip, B_l2, A_l2)
+        else:
+            Cyx = None
+
+        return Cxy, Cyx

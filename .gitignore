@@ -210,6 +210,7 @@ __marimo__/
 feature
 weight/
 train_proj/
+train_fig/
 cluster/
 itsamatch/
 itsamatch_more

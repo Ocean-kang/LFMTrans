@@ -11,15 +11,15 @@ train:
   type: patch_unmean # patch, patch_unmean
 
 knngraph:
-  k: 300
+  k: 50
   metric_knn: ip # 'ip', 'L2'
-  metric_laplacian: none # 'none', 'sym', 'rw'
+  metric_laplacian: sym # 'none', 'sym', 'rw'
 
 laplacian_mat:
-  k: 100 # K eigenvectors for using in decomposition
+  k: 150 # K eigenvectors for using in decomposition
 
 anchor:
-  n_anchors: 300
+  n_anchors: 50
   cls_anchors: 2
   metric: ip # 'L2' or 'ip'
 
@@ -29,7 +29,7 @@ validation:
   type: patch
 
 fmap: 
-  type: anchor # anchor, raw, train
+  type: Ip_and_L2 # anchor, Ip_and_L2, train
   method: LFMtrans # LFMtrans, EOT
 
 

@@ -48,7 +48,7 @@ def build_laplacian_matrix(W: torch.Tensor, normalize: str = 'none', device: str
         raise ValueError("normalize parameter must be 'none', 'sym' or 'rw'")
     
 
-def laplacian_construction_decomposition(cfg, cost_matrix, device):
+def laplacian_construction_decomposition(cfg, cost_matrix, device, ret_L=False):
 
     assert cfg.knngraph.metric_laplacian in ['none', 'sym', 'rw'], f"Unsupported metric: {cfg.knngraph.metric_laplacian}"
 
@@ -62,6 +62,9 @@ def laplacian_construction_decomposition(cfg, cost_matrix, device):
     sorted_indices = torch.argsort(eigenvalues)
     eigenvalues = eigenvalues[sorted_indices]
     eigenvectors = eigenvectors[:, sorted_indices]
-
-    return eigenvectors, eigenvalues
+    
+    if ret_L:
+        return eigenvectors, eigenvalues, L_matrix
+    else:
+        return eigenvectors, eigenvalues
 
