@@ -1,6 +1,6 @@
 seed: 2025
 
-deice_gpu: 0
+device_gpu: 0
 save: 0
 
 train:
@@ -28,8 +28,10 @@ validation:
   text_model: llama # llama, mpnet
   type: patch
 
-fmap: 
+fmap:
   type: Ip_and_L2 # anchor, Ip_and_L2, train
   method: LFMtrans # LFMtrans, EOT
-
-
+  lmbda: 100.0
+  aux_lmbda: 25.0
+  reg: 1.0e-6
+  resolvant_gamma: 0.5
