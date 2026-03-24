@@ -1,7 +1,7 @@
 seed: 2025
 
 device_gpu: 0
-save: 0
+save: 1
 
 train:
   dataset: cocostuff
@@ -16,7 +16,7 @@ knngraph:
   metric_laplacian: sym # 'none', 'sym', 'rw'
 
 laplacian_mat:
-  k: 150 # K eigenvectors for using in decomposition
+  k: 128 # number of eigenvectors used in decomposition
 
 anchor:
   n_anchors: 50
@@ -29,9 +29,36 @@ validation:
   type: patch
 
 fmap:
-  type: Ip_and_L2 # anchor, Ip_and_L2, train
+  type: train # anchor, Ip_and_L2, train
   method: LFMtrans # LFMtrans, EOT
   lmbda: 100.0
   aux_lmbda: 25.0
   reg: 1.0e-6
   resolvant_gamma: 0.5
+
+projector:
+  hidden_dim: 2048
+  dropout: 0.0
+  normalize_output: true
+  checkpoint_path: ''
+
+projector_train:
+  epochs: 20
+  steps_per_epoch: 50
+  classes_per_step: 32
+  samples_per_class: 4
+  lr: 1.0e-4
+  weight_decay: 1.0e-4
+  grad_clip: 1.0
+  log_every: 10
+  ckpt_dir: ./checkpoints
+
+loss:
+  w_bij: 1.0
+  w_orth: 1.0
+  w_lap: 1.0e-3
+  w_ot: 1.0
+  w_proper: 1.0
+  temperature: 0.07
+  ot_projections: 64
+  ot_p: 2

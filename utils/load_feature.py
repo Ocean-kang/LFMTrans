@@ -63,7 +63,7 @@ def load_feature_mpnet_unmean(dataset):
         dinov2_patchtoken_unmean_path = Path(f'./itsamatch_more/feat_synonym_dinov2_{dataset}_L.pkl')
         ret_dict['mpnet_unmean'] = pkl_feat_load(mpnet_path_unmean).cpu().float()
         ret_dict['patch_unmean'] = pkl_feat_load(dinov2_patchtoken_unmean_path).cpu().float()
-    return None
+    return ret_dict
 
 def llama_features(datasets):
     feat_dict = {}

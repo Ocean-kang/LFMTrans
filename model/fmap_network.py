@@ -36,6 +36,7 @@ def get_mask(evals1, evals2, resolvant_gamma):
 
 class RegularizedFMNet(nn.Module):
     """Compute the functional map matrix representation in DPFM."""
+
     def __init__(self, lmbda=100, resolvant_gamma=0.5, bidirectional=False):
         super().__init__()
         self.lmbda = lmbda
@@ -74,7 +75,6 @@ class LatentFunctionMap(nn.Module):
         self.reg = float(getattr(getattr(cfg, 'fmap', {}), 'reg', 1e-6))
 
     def compute_functional_map_batch(self, A: torch.Tensor, B: torch.Tensor, reg: float = None) -> torch.Tensor:
-        """Solve min_C ||CA - B||_F^2 + reg ||C||_F^2 for batched spectral coefficients."""
         if reg is None:
             reg = self.reg
         assert A.dim() == 3 and B.dim() == 3, 'A/B must be 3D tensors [B, K, C]'
@@ -96,6 +96,7 @@ class LatentFunctionMap(nn.Module):
 
 class MultiConstraintFM(nn.Module):
     """Single-basis functional map with an auxiliary graph used only as a spectral regularizer."""
+
     def __init__(self, lmbda: float = 100.0, aux_lmbda: float = 25.0, reg: float = 1e-6,
                  resolvant_gamma: float = 0.5, bidirectional: bool = True):
         super().__init__()
@@ -126,6 +127,13 @@ class MultiConstraintFM(nn.Module):
         return torch.cat(rows, dim=1)
 
     def forward(self, feat_x, feat_y, evals_x, evals_y, evecs_x, evecs_y, aux_evals_x=None, aux_evals_y=None):
+        if feat_x.shape[0] != feat_y.shape[0]:
+            raise ValueError('feat_x and feat_y must have the same batch size')
+        if feat_x.shape[-1] != feat_y.shape[-1]:
+            raise ValueError(
+                f'Feature dimensions must match before FM. Got text/projected dim={feat_x.shape[-1]} and vision dim={feat_y.shape[-1]}. '
+                'Train or load a text->vision projector before calling MultiConstraintFM.'
+            )
         A = torch.bmm(evecs_x, feat_x)
         B = torch.bmm(evecs_y, feat_y)
         Cxy = self._solve(A, B, evals_x, evals_y, aux_evals_x, aux_evals_y)
@@ -135,6 +143,7 @@ class MultiConstraintFM(nn.Module):
 
 class MultiConstraintDFM(nn.Module):
     """Deep FM variant kept for backward compatibility."""
+
     def __init__(self, reg: float = 1e-6, alpha: float = 1.0, bidirectional: bool = True):
         super().__init__()
         self.reg = reg
@@ -142,7 +151,7 @@ class MultiConstraintDFM(nn.Module):
         self.bidirectional = bidirectional
 
     def compute_fm_batch(self, A_ip, B_ip, aux_X=None, aux_Y=None, alpha=1.0, reg=1e-6):
-        B, K_ip, _ = A_ip.shape
+        _, K_ip, _ = A_ip.shape
         if aux_X is not None and aux_Y is not None:
             A_aug = torch.cat([A_ip, alpha * aux_X], dim=2)
             B_aug = torch.cat([B_ip, alpha * aux_Y], dim=2)
