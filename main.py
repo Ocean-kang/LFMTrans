@@ -12,12 +12,10 @@ from easydict import EasyDict as edict
 import matplotlib.pyplot as plt
 
 from model.Encoder import build_text_projector
-from utils.load_feature import mpnet_features, llama_features, llama_unmean_features, mpnet_unmean_features
-from utils.fmap_util import fmap2pointmap
-from utils.fmap_retrieval import accrucy_fn
+from utils.load_feature import load_features_by_model, ensure_dataset_list
 from src.anchor_supervised import LFMAnchor
 from src.l2ipcombinemapping import LFMapIpL2Combination
-from src.proj_train import ProjectorFMTrainer
+from src.proj_train import ProjectorFMTrainer, ProjectorFMEvaluator
 
 warnings.filterwarnings('ignore', category=UserWarning)
 ex = Experiment('LFMtrans')
@@ -42,19 +40,31 @@ cudnn.benchmark = False
 cudnn.deterministic = True
 
 
+def _validation_datasets(cfg):
+    datasets = ensure_dataset_list(getattr(cfg.validation, 'datasets', []))
+    if datasets:
+        return datasets
+    if getattr(cfg.validation, 'dataset', None):
+        return [cfg.validation.dataset]
+    raise ValueError('validation.datasets is empty and validation.dataset is not set')
+
+
 def _load_train_features(cfg):
-    datasets = [cfg.train.dataset]
-    if cfg.train.text_model == 'llama_unmean':
-        return llama_unmean_features(datasets)
-    return mpnet_unmean_features(datasets)
+    return load_features_by_model([cfg.train.dataset], cfg.train.text_model)
 
 
 
 def _load_eval_features(cfg):
-    datasets = [cfg.validation.dataset]
-    if cfg.validation.text_model == 'llama':
-        return llama_features(datasets)
-    return mpnet_features(datasets)
+    return load_features_by_model(_validation_datasets(cfg), cfg.validation.text_model)
+
+
+
+def _build_projector_from_feature_dict(cfg, feature_dict_eval, device, dataset):
+    feat_t = feature_dict_eval[dataset][cfg.validation.text_model]
+    feat_v = feature_dict_eval[dataset][cfg.validation.type]
+    feat_t_dim = feat_t.shape[-1]
+    feat_v_dim = feat_v.shape[-1]
+    return build_text_projector(cfg, feat_t_dim, feat_v_dim).to(device)
 
 
 
@@ -62,16 +72,24 @@ def _load_projector_if_needed(cfg, feature_dict_eval, device):
     ckpt_path = getattr(getattr(cfg, 'projector', None), 'checkpoint_path', '')
     if not ckpt_path:
         return None
-
-    dataset = cfg.validation.dataset
-    feat_t = feature_dict_eval[dataset][cfg.validation.text_model]
-    feat_v = feature_dict_eval[dataset][cfg.validation.type]
-    projector = build_text_projector(cfg, feat_t.shape[-1], feat_v.shape[-1]).to(device)
+    dataset = _validation_datasets(cfg)[0]
+    projector = _build_projector_from_feature_dict(cfg, feature_dict_eval, device, dataset)
     checkpoint = torch.load(ckpt_path, map_location=device)
     state_dict = checkpoint['state_dict'] if isinstance(checkpoint, dict) and 'state_dict' in checkpoint else checkpoint
     projector.load_state_dict(state_dict)
     projector.eval()
     return projector
+
+
+
+def _print_eval_results(title, results):
+    print(title)
+    for dataset, metrics in results.items():
+        print(
+            f"  [{dataset}] "
+            f"vision->text={metrics['acc_v_to_t']:.4f} "
+            f"text->vision={metrics['acc_t_to_v']:.4f}"
+        )
 
 
 @ex.automain
@@ -92,35 +110,38 @@ def main(_run, _log):
         text_dim = feature_dict_train[dataset][cfg.train.text_model].shape[-1]
         vision_dim = feature_dict_train[dataset][cfg.train.type].shape[-1]
         trainer = ProjectorFMTrainer(cfg, device, text_dim=text_dim, vision_dim=vision_dim)
-        result = trainer.fit(feature_dict_train, feature_dict_eval)
-        print(f"vision->text acc: {result['acc_v_to_t']:.4f}")
-        print(f"text->vision acc: {result['acc_t_to_v']:.4f}")
+        result = trainer.fit(feature_dict_train, feature_dict_eval, final_eval_datasets=_validation_datasets(cfg))
         print(f"checkpoint: {result['checkpoint_path']}")
+        if result.get('train_eval_history'):
+            last_train_eval = result['train_eval_history'][-1]
+            print(
+                f"last train-set eval ({dataset}): "
+                f"vision->text={last_train_eval['acc_v_to_t']:.4f} "
+                f"text->vision={last_train_eval['acc_t_to_v']:.4f}"
+            )
+        _print_eval_results('final multi-dataset eval:', result['final_eval_results'])
         Cxy = result['Cxy']
-        basis_x = result['x_basis']
-        basis_y = result['y_basis']
     elif cfg.fmap.type == 'anchor':
         feature_dict_train = _load_train_features(cfg)
         feature_dict_eval = _load_eval_features(cfg)
         lfm_anchor = LFMAnchor(cfg=cfg)
         Cxy, Cyx, x_basis, _, y_basis, _, labels_t, labels_v = lfm_anchor(feature_dict_train, feature_dict_eval, device)
-        pred_y_to_x = fmap2pointmap(Cxy, x_basis.permute(1, 0), y_basis.permute(1, 0))
-        pred_x_to_y = fmap2pointmap(Cyx, y_basis.permute(1, 0), x_basis.permute(1, 0))
-        num_classes = int(labels_t.max().item()) + 1
-        print(accrucy_fn(labels_t, pred_y_to_x % num_classes))
-        print(accrucy_fn(labels_t, pred_x_to_y % num_classes))
-        basis_x = x_basis
-        basis_y = y_basis
+        print('anchor mode finished')
     elif cfg.fmap.type == 'Ip_and_L2':
         feature_dict_eval = _load_eval_features(cfg)
         projector = _load_projector_if_needed(cfg, feature_dict_eval, device)
-        lfm_combine = LFMapIpL2Combination(cfg=cfg)
-        Cxy, Cyx, basis_x, basis_y = lfm_combine(feature_dict_eval, device, projector=projector)
-        pred_y_to_x = fmap2pointmap(Cxy, basis_x.permute(1, 0), basis_y.permute(1, 0))
-        pred_x_to_y = fmap2pointmap(Cyx, basis_y.permute(1, 0), basis_x.permute(1, 0))
-        gt = torch.arange(min(pred_y_to_x.shape[0], pred_x_to_y.shape[0]), device=pred_y_to_x.device)
-        print(accrucy_fn(gt, pred_y_to_x[:gt.shape[0]]))
-        print(accrucy_fn(gt, pred_x_to_y[:gt.shape[0]]))
+        fm_helper = LFMapIpL2Combination(cfg=cfg)
+        evaluator = ProjectorFMEvaluator(cfg, device, fm_helper)
+        results = evaluator.evaluate_feature_dict(
+            feature_dict_eval=feature_dict_eval,
+            projector=projector,
+            text_key=cfg.validation.text_model,
+            vision_key=cfg.validation.type,
+            datasets=_validation_datasets(cfg),
+        )
+        _print_eval_results('multi-dataset eval:', results)
+        first_dataset = _validation_datasets(cfg)[0]
+        Cxy = results[first_dataset]['Cxy']
     else:
         raise ValueError(f'Unsupported fmap.type: {cfg.fmap.type}')
 

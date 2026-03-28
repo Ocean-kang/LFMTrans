@@ -25,8 +25,12 @@ anchor:
 
 validation:
   dataset: cocostuff
+  datasets: ['cocostuff', '150', 'voc20', 'pc59', 'CIFAR-100', 'ImageNet-100']
   text_model: llama # llama, mpnet
   type: patch
+  shuffle_before_eval: false
+  shuffle_trials: 1
+  shuffle_seed: 2025
 
 fmap:
   type: train # anchor, Ip_and_L2, train
@@ -52,6 +56,7 @@ projector_train:
   grad_clip: 1.0
   log_every: 10
   ckpt_dir: ./checkpoints
+  report_train_each_epoch: true
 
 loss:
   w_bij: 1.0

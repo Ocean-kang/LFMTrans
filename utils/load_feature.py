@@ -1,8 +1,8 @@
 import pickle as pkl
 from pathlib import Path
+from typing import Iterable, List
 
 import torch
-
 
 
 def pkl_feat_load(PATH: Path):
@@ -98,3 +98,33 @@ def mpnet_unmean_features(datasets):
 if __name__ == '__main__':
     datasets = ['cocostuff', '150', '847', 'voc20', 'voc20b', 'pc59', 'ImageNet-100', 'CIFAR-100']
     feature_dict = mpnet_features(datasets) # llama_trans_features(datasets)
+
+
+def ensure_dataset_list(datasets):
+    if datasets is None:
+        return []
+    if isinstance(datasets, (list, tuple)):
+        return list(datasets)
+    return [datasets]
+
+
+def load_features_by_model(datasets, text_model: str):
+    datasets = ensure_dataset_list(datasets)
+    loader_map = {
+        'llama': llama_features,
+        'llama_unmean': llama_unmean_features,
+        'llama_trans': llama_trans_features,
+        'mpnet': mpnet_features,
+        'mpnet_unmean': mpnet_unmean_features,
+    }
+    if text_model not in loader_map:
+        raise ValueError(f'Unsupported text_model: {text_model}')
+    return loader_map[text_model](datasets)
+
+
+def maybe_mean_pool_features(feat: torch.Tensor) -> torch.Tensor:
+    if feat.ndim == 2:
+        return feat
+    if feat.ndim == 3:
+        return feat.mean(dim=1)
+    raise ValueError(f'Expected feature tensor with ndim 2 or 3, got shape {tuple(feat.shape)}')

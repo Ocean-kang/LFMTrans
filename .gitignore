@@ -216,3 +216,6 @@ itsamatch/
 itsamatch_more
 itsamatch
 LFM_oymk
+
+checkpoints/
+train_log/
