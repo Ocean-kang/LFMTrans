@@ -210,12 +210,13 @@ __marimo__/
 feature
 weight/
 train_proj/
-train_fig/
 cluster/
 itsamatch/
 itsamatch_more
 itsamatch
 LFM_oymk
+DINOv2
+data
 
 checkpoints/
 train_log/

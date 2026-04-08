@@ -3,6 +3,25 @@ seed: 2025
 device_gpu: 0
 save: 1
 
+dataset:
+  resize: 518
+  root_dir_mscoco: data/mscoco
+  root_dir_ade20k: data/ade20k/
+  root_dir_pc: data/pascal_context
+  root_dir_voc: data/pascal_voc
+  DINOv2_BACKBONE_SIZE: large # small, base, large, giant
+  val_batch_size: 8
+  num_workers: 2
+
+eval:
+  DINOv2_BACKBONE_SIZE: large
+  input_dim: 4096
+  output_dim: 1024
+  enabled: 0
+  method: LFMTrans # LFMTtrans, uvlt, talk2dino
+  checkpoint_path: './checkpoints/text_to_vision_projector.pt'
+
+
 train:
   dataset: cocostuff
   batchsize: 1
