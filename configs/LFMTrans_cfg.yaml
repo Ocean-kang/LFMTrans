@@ -77,6 +77,13 @@ projector_train:
   ckpt_dir: ./checkpoints
   report_train_each_epoch: true
 
+  mask: 1                       # 1=原始训练, 2=cluster训练
+  cluster_subsample_ratio: 0.5  # 每类先按 ratio 子采样
+  cluster_kmeans_n_init: 100
+  cluster_remove_zero_padding: true
+  cluster_rebuild_each_epoch: false
+  report_cluster_each_epoch: true
+
 loss:
   w_bij: 1.0
   w_orth: 1.0

@@ -115,6 +115,7 @@ def main(_run, _log):
             trainer = ProjectorFMTrainer(cfg, device, text_dim=text_dim, vision_dim=vision_dim)
             result = trainer.fit(feature_dict_train, feature_dict_eval, final_eval_datasets=_validation_datasets(cfg))
             print(f"checkpoint: {result['checkpoint_path']}")
+
             if result.get('train_eval_history'):
                 last_train_eval = result['train_eval_history'][-1]
                 print(
@@ -122,8 +123,18 @@ def main(_run, _log):
                     f"vision->text={last_train_eval['acc_v_to_t']:.4f} "
                     f"text->vision={last_train_eval['acc_t_to_v']:.4f}"
                 )
+
+            if result.get('final_cluster_metrics') is not None:
+                cm = result['final_cluster_metrics']
+                print(
+                    f"last cluster eval ({dataset}): "
+                    f"cluster->gt={cm['cluster_gt_accuracy']:.4f} "
+                    f"cluster->pred={cm['cluster_pred_accuracy']:.4f} "
+                    f"pred->gt={cm['pred_gt_accuracy']:.4f}"
+                )
+
             _print_eval_results('final multi-dataset eval:', result['final_eval_results'])
-            Cxy = result['Cxy']
+
         elif cfg.fmap.type == 'anchor':
             feature_dict_train = _load_train_features(cfg)
             feature_dict_eval = _load_eval_features(cfg)
@@ -144,7 +155,6 @@ def main(_run, _log):
             )
             _print_eval_results('multi-dataset eval:', results)
             first_dataset = _validation_datasets(cfg)[0]
-            Cxy = results[first_dataset]['Cxy']
         else:
             raise ValueError(f'Unsupported fmap.type: {cfg.fmap.type}')
     else:

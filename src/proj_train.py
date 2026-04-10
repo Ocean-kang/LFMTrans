@@ -11,6 +11,15 @@ from src.l2ipcombinemapping import LFMapIpL2Combination
 from utils.fmap_retrieval import accrucy_fn
 from utils.fmap_util import fmap2pointmap
 from utils.load_feature import maybe_mean_pool_features
+from utils.itsamatch_cluster import (
+    assign_to_centers,
+    build_cluster_training_tensor,
+    flatten_classwise_features,
+)
+from utils.cluster_metrics import (
+    evaluate_cluster_predictions,
+    hungarian_match_from_similarity,
+)
 
 
 class ProjectorFMEvaluator:
@@ -149,6 +158,7 @@ class ProjectorFMTrainer:
         self.w_proper = float(getattr(loss_cfg, 'w_proper', 1.0))
 
         train_cfg = getattr(cfg, 'projector_train', None)
+        # general training hyperparameters
         self.epochs = int(getattr(train_cfg, 'epochs', 30))
         self.steps_per_epoch = int(getattr(train_cfg, 'steps_per_epoch', 50))
         self.classes_per_step = int(getattr(train_cfg, 'classes_per_step', 32))
@@ -157,6 +167,13 @@ class ProjectorFMTrainer:
         self.log_every = int(getattr(train_cfg, 'log_every', 10))
         self.ckpt_dir = getattr(train_cfg, 'ckpt_dir', './checkpoints')
         self.report_train_each_epoch = bool(getattr(train_cfg, 'report_train_each_epoch', True))
+        # clustering-related hyperparameters
+        self.mask = int(getattr(train_cfg, 'mask', 1))
+        self.cluster_subsample_ratio = float(getattr(train_cfg, 'cluster_subsample_ratio', 0.5))
+        self.cluster_kmeans_n_init = int(getattr(train_cfg, 'cluster_kmeans_n_init', 100))
+        self.cluster_remove_zero_padding = bool(getattr(train_cfg, 'cluster_remove_zero_padding', True))
+        self.cluster_rebuild_each_epoch = bool(getattr(train_cfg, 'cluster_rebuild_each_epoch', False))
+        self.report_cluster_each_epoch = bool(getattr(train_cfg, 'report_cluster_each_epoch', True))
 
         self.optimizer = torch.optim.AdamW(
             self.projector.parameters(),
@@ -165,27 +182,119 @@ class ProjectorFMTrainer:
         )
 
     @staticmethod
+    def _ensure_3d_bank(bank: torch.Tensor, name: str) -> torch.Tensor:
+        if bank.ndim == 2:
+            return bank.unsqueeze(1)
+        if bank.ndim == 3:
+            return bank
+        raise ValueError(f'{name} bank must be [C, D] or [C, S, D], got shape={tuple(bank.shape)}')
+
+    @staticmethod
     def _sample_from_bank(bank: torch.Tensor, class_ids: torch.Tensor, samples_per_class: int) -> torch.Tensor:
-        _, num_per_class, feat_dim = bank.shape
         if class_ids.numel() == 0:
             raise ValueError('class_ids cannot be empty')
-        if samples_per_class > num_per_class:
-            raise ValueError(f'samples_per_class={samples_per_class} exceeds available samples {num_per_class}')
-        idx = torch.stack([torch.randperm(num_per_class)[:samples_per_class] for _ in range(class_ids.numel())], dim=0)
-        selected = bank[class_ids.unsqueeze(1), idx]
-        batch = selected.reshape(-1, feat_dim)
-        perm = torch.randperm(batch.shape[0])
-        return batch[perm]
+
+        bank = bank.float().cpu()
+        outputs = []
+
+        for cls_id in class_ids.tolist():
+            cls_bank = bank[cls_id]
+            if cls_bank.ndim == 1:
+                cls_bank = cls_bank.unsqueeze(0)
+
+            # 关键修复：cluster 后的 [K, max_count, D] 包含 padding，全0行不能参与采样
+            valid_mask = cls_bank.abs().sum(dim=-1) > 0
+            valid_rows = cls_bank[valid_mask]
+
+            if valid_rows.shape[0] == 0:
+                raise ValueError(
+                    f'Class/cluster {cls_id} has no valid non-zero features after filtering. '
+                    'This usually means an empty cluster or all-zero padded supports.'
+                )
+
+            if valid_rows.shape[0] >= samples_per_class:
+                idx = torch.randperm(valid_rows.shape[0])[:samples_per_class]
+            else:
+                idx = torch.randint(
+                    low=0,
+                    high=valid_rows.shape[0],
+                    size=(samples_per_class,),
+                )
+
+            outputs.append(valid_rows[idx])
+
+        return torch.cat(outputs, dim=0)
 
     def _sample_batch(self, train_bank: Dict[str, torch.Tensor]):
-        text_bank = train_bank['text']
-        vision_bank = train_bank['vision']
+        text_bank = self._ensure_3d_bank(train_bank['text'], 'text')
+        vision_bank = self._ensure_3d_bank(train_bank['vision'], 'vision')
+
         num_classes = min(text_bank.shape[0], vision_bank.shape[0])
         class_count = min(self.classes_per_step, num_classes)
         class_ids = torch.randperm(num_classes)[:class_count]
-        feat_t = self._sample_from_bank(text_bank, class_ids, self.samples_per_class).to(self.device, non_blocking=True)
-        feat_v = self._sample_from_bank(vision_bank, class_ids, self.samples_per_class).to(self.device, non_blocking=True)
+
+        feat_t = self._sample_from_bank(
+            text_bank, class_ids, self.samples_per_class
+        ).to(self.device, non_blocking=True)
+
+        feat_v = self._sample_from_bank(
+            vision_bank, class_ids, self.samples_per_class
+        ).to(self.device, non_blocking=True)
+
         return feat_t, feat_v
+
+    def _prepare_cluster_train_bank(self, raw_train_bank: Dict[str, torch.Tensor], seed: int):
+        text_bank = self._ensure_3d_bank(raw_train_bank['text'], 'text').float().cpu()
+        vision_bank = self._ensure_3d_bank(raw_train_bank['vision'], 'vision').float().cpu()
+
+        n_cls = min(text_bank.shape[0], vision_bank.shape[0])
+
+        cluster_result = build_cluster_training_tensor(
+            vision_features=vision_bank[:n_cls],
+            n_cls=n_cls,
+            sub_seed=seed,
+            subsample_ratio=self.cluster_subsample_ratio,
+            n_init=self.cluster_kmeans_n_init,
+            remove_zero_padding=self.cluster_remove_zero_padding,
+        )
+
+        cluster_bank = {
+            'text': text_bank[:n_cls],
+            'vision': cluster_result.feat_vision_cluster.float().cpu(),  # [K, max_count, D]
+        }
+        return cluster_bank, cluster_result
+    
+    @torch.no_grad()
+    def _evaluate_cluster_metrics(self, raw_train_bank: Dict[str, torch.Tensor], cluster_result):
+        raw_vision = self._ensure_3d_bank(raw_train_bank['vision'], 'vision').float().cpu()
+        raw_text = self._ensure_3d_bank(raw_train_bank['text'], 'text').float().cpu()
+
+        eval_features, eval_labels, _, _ = flatten_classwise_features(
+            raw_vision,
+            remove_zero_padding=self.cluster_remove_zero_padding,
+        )
+
+        assignments = assign_to_centers(eval_features, cluster_result.centers)
+
+        text_proto = maybe_mean_pool_features(raw_text).to(self.device)
+        was_training = self.projector.training
+        self.projector.eval()
+        translated_text = self.projector(text_proto).float().cpu()
+        if was_training:
+            self.projector.train()
+
+        centers = F.normalize(cluster_result.centers.float().cpu(), dim=-1)
+        translated_text = F.normalize(translated_text, dim=-1)
+
+        similarity = centers @ translated_text.T
+        permutation = hungarian_match_from_similarity(similarity)
+
+        return evaluate_cluster_predictions(
+            assignments=assignments,
+            labels=eval_labels,
+            predicted_permutation=permutation,
+            num_classes=text_proto.shape[0],
+        )
 
     def _soft_correspondence(self, Cxy, Cyx, x_basis, y_basis):
         phi_x = x_basis.transpose(1, 2)
@@ -261,36 +370,70 @@ class ProjectorFMTrainer:
 
     def fit(self, feature_dict_train, feature_dict_eval, final_eval_datasets):
         dataset = self.cfg.train.dataset
-        train_bank = {
+
+        raw_train_bank = {
             'text': feature_dict_train[dataset][self.cfg.train.text_model].float().cpu(),
             'vision': feature_dict_train[dataset][self.cfg.train.type].float().cpu(),
         }
-        train_eval_pair = self._build_train_eval_pair(train_bank)
-        text_dim = train_bank['text'].shape[-1]
-        vision_dim = train_bank['vision'].shape[-1]
+
+        # 训练质量仍然在原始 bank 上看，不在 cluster bank 上看
+        train_eval_pair = self._build_train_eval_pair(raw_train_bank)
+
+        text_dim = raw_train_bank['text'].shape[-1]
+        vision_dim = raw_train_bank['vision'].shape[-1]
+
+        if self.mask == 1:
+            train_bank = {
+                'text': self._ensure_3d_bank(raw_train_bank['text'], 'text'),
+                'vision': self._ensure_3d_bank(raw_train_bank['vision'], 'vision'),
+            }
+            cluster_result = None
+        elif self.mask == 2:
+            train_bank, cluster_result = self._prepare_cluster_train_bank(
+                raw_train_bank=raw_train_bank,
+                seed=int(getattr(self.cfg, 'seed', 0)),
+            )
+        else:
+            raise ValueError(f'Unsupported projector_train.mask: {self.mask}')
 
         history = []
         train_eval_history = []
+        cluster_eval_history = []
+
         for epoch in range(1, self.epochs + 1):
+            if self.mask == 2 and self.cluster_rebuild_each_epoch:
+                train_bank, cluster_result = self._prepare_cluster_train_bank(
+                    raw_train_bank=raw_train_bank,
+                    seed=int(getattr(self.cfg, 'seed', 0)) + epoch,
+                )
+
             running = {'loss': 0.0, 'fmap': 0.0, 'proper': 0.0, 'ot': 0.0}
+
             for step in range(1, self.steps_per_epoch + 1):
                 feat_t, feat_v = self._sample_batch(train_bank)
                 step_stats = self._train_step(feat_t, feat_v)
+
                 for key in running:
                     running[key] += step_stats[key]
 
                 if step % self.log_every == 0 or step == self.steps_per_epoch:
-                    scale = 1.0 / step
+                    avg_loss = running['loss'] / step
+                    avg_fmap = running['fmap'] / step
+                    avg_proper = running['proper'] / step
+                    avg_ot = running['ot'] / step
                     print(
-                        f"[epoch {epoch:03d} step {step:03d}] "
-                        f"loss={running['loss'] * scale:.4f} "
-                        f"fmap={running['fmap'] * scale:.4f} "
-                        f"proper={running['proper'] * scale:.4f} "
-                        f"ot={running['ot'] * scale:.4f}"
+                        f"[epoch {epoch:03d} step {step:04d}] "
+                        f"loss={avg_loss:.4f} fmap={avg_fmap:.4f} "
+                        f"proper={avg_proper:.4f} ot={avg_ot:.4f}"
                     )
 
-            epoch_scale = 1.0 / self.steps_per_epoch
-            epoch_stats = {k: running[k] * epoch_scale for k in running}
+            epoch_stats = {
+                'epoch': epoch,
+                'loss': running['loss'] / self.steps_per_epoch,
+                'fmap': running['fmap'] / self.steps_per_epoch,
+                'proper': running['proper'] / self.steps_per_epoch,
+                'ot': running['ot'] / self.steps_per_epoch,
+            }
             history.append(epoch_stats)
 
             if self.report_train_each_epoch:
@@ -298,18 +441,47 @@ class ProjectorFMTrainer:
                     train_eval_pair['text'],
                     train_eval_pair['vision'],
                     projector=self.projector,
-                    dataset_name=f'{dataset}_train',
                 )
-                train_eval_history.append({
-                    'epoch': epoch,
-                    'acc_v_to_t': train_eval['acc_v_to_t'],
-                    'acc_t_to_v': train_eval['acc_t_to_v'],
-                })
+                train_eval_record = {'epoch': epoch, **train_eval}
+                train_eval_history.append(train_eval_record)
                 print(
-                    f"[epoch {epoch:03d} eval {dataset}] "
+                    f"[epoch {epoch:03d} train-eval {dataset}] "
                     f"vision->text={train_eval['acc_v_to_t']:.4f} "
                     f"text->vision={train_eval['acc_t_to_v']:.4f}"
                 )
+
+            if cluster_result is not None and self.report_cluster_each_epoch:
+                cluster_eval = self._evaluate_cluster_metrics(raw_train_bank, cluster_result)
+                cluster_eval_record = {
+                    'epoch': epoch,
+                    'cluster_gt_accuracy': cluster_eval.cluster_gt_accuracy,
+                    'cluster_pred_accuracy': cluster_eval.cluster_pred_accuracy,
+                    'pred_gt_accuracy': cluster_eval.pred_gt_accuracy,
+                }
+                cluster_eval_history.append(cluster_eval_record)
+
+                print(
+                    f"[epoch {epoch:03d} cluster-eval {dataset}] "
+                    f"cluster->gt={cluster_eval.cluster_gt_accuracy:.4f} "
+                    f"cluster->pred={cluster_eval.cluster_pred_accuracy:.4f} "
+                    f"pred->gt={cluster_eval.pred_gt_accuracy:.4f}"
+                )
+
+        os.makedirs(self.ckpt_dir, exist_ok=True)
+        ckpt_path = os.path.join(
+            self.ckpt_dir,
+            f"{dataset}_{self.cfg.train.text_model}_to_{self.cfg.train.type}_projector.pt"
+        )
+        torch.save(
+            {
+                'state_dict': self.projector.state_dict(),
+                'config': self.cfg,
+                'history': history,
+                'train_eval_history': train_eval_history,
+                'cluster_eval_history': cluster_eval_history,
+            },
+            ckpt_path,
+        )
 
         final_eval_results = self.evaluator.evaluate_feature_dict(
             feature_dict_eval=feature_dict_eval,
@@ -318,12 +490,22 @@ class ProjectorFMTrainer:
             vision_key=self.cfg.validation.type,
             datasets=final_eval_datasets,
         )
-        ckpt_path = self._save_checkpoint(text_dim, vision_dim)
 
         first_dataset = final_eval_datasets[0]
+        Cxy = final_eval_results[first_dataset]['Cxy']
+        Cyx = final_eval_results[first_dataset]['Cyx']
+        x_basis = final_eval_results[first_dataset]['x_basis']
+        y_basis = final_eval_results[first_dataset]['y_basis']
+
         result = dict(final_eval_results[first_dataset])
+        result['Cxy'] = Cxy
+        result['Cyx'] = Cyx
+        result['x_basis'] = x_basis
+        result['y_basis'] = y_basis
         result['checkpoint_path'] = ckpt_path
         result['history'] = history
         result['train_eval_history'] = train_eval_history
+        result['cluster_eval_history'] = cluster_eval_history
+        result['final_cluster_metrics'] = cluster_eval_history[-1] if cluster_eval_history else None
         result['final_eval_results'] = final_eval_results
         return result
