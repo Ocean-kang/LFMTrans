@@ -30,12 +30,12 @@ train:
   type: patch_unmean # patch, patch_unmean
 
 knngraph:
-  k: 50
+  k: 30
   metric_knn: ip # 'ip', 'L2'
   metric_laplacian: sym # 'none', 'sym', 'rw'
 
 laplacian_mat:
-  k: 128 # number of eigenvectors used in decomposition
+  k: 170 # number of eigenvectors used in decomposition
 
 anchor:
   n_anchors: 50
@@ -54,13 +54,13 @@ validation:
 fmap:
   type: train # anchor, Ip_and_L2, train
   method: LFMtrans # LFMtrans, EOT
-  lmbda: 100.0
-  aux_lmbda: 25.0
+  lmbda: 200.0
+  aux_lmbda: 10.0
   reg: 1.0e-6
   resolvant_gamma: 0.5
 
 projector:
-  hidden_dim: 2048
+  hidden_dim: 4096
   dropout: 0.0
   normalize_output: true
   checkpoint_path: ''
@@ -68,11 +68,11 @@ projector:
 projector_train:
   epochs: 20
   steps_per_epoch: 50
-  classes_per_step: 32
-  samples_per_class: 4
+  classes_per_step: 16
+  samples_per_class: 8
   lr: 1.0e-4
   weight_decay: 1.0e-4
-  grad_clip: 1.0
+  grad_clip: 2.0
   log_every: 10
   ckpt_dir: ./checkpoints
   report_train_each_epoch: true
@@ -81,8 +81,8 @@ loss:
   w_bij: 1.0
   w_orth: 1.0
   w_lap: 1.0e-3
-  w_ot: 1.0
+  w_ot: 0.75
   w_proper: 1.0
-  temperature: 0.07
+  temperature: 0.1
   ot_projections: 64
   ot_p: 2
