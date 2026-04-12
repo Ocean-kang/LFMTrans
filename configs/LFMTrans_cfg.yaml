@@ -83,6 +83,7 @@ projector_train:
   cluster_remove_zero_padding: true
   cluster_rebuild_each_epoch: false
   report_cluster_each_epoch: true
+  kmeans_metric: L2 # 'ip' or 'L2'
 
 loss:
   w_bij: 1.0

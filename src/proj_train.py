@@ -12,6 +12,7 @@ from utils.fmap_retrieval import accrucy_fn
 from utils.fmap_util import fmap2pointmap
 from utils.load_feature import maybe_mean_pool_features
 from utils.itsamatch_cluster import (
+    assign_to_ip_centers,
     assign_to_centers,
     build_cluster_training_tensor,
     flatten_classwise_features,
@@ -244,12 +245,17 @@ class ProjectorFMTrainer:
         return feat_t, feat_v
 
     def _prepare_cluster_train_bank(self, raw_train_bank: Dict[str, torch.Tensor], seed: int):
-        text_bank = self._ensure_3d_bank(raw_train_bank['text'], 'text').float().cpu()
-        vision_bank = self._ensure_3d_bank(raw_train_bank['vision'], 'vision').float().cpu()
+
+        kmeans_metric = str(getattr(self.cfg.projector_train, 'kmeans_metric', 'L2')).lower()
+        cluster_device = self.device if kmeans_metric == 'ip' else torch.device('cpu')
+
+        text_bank = self._ensure_3d_bank(raw_train_bank['text'], 'text').float().to(cluster_device, non_blocking=True)
+        vision_bank = self._ensure_3d_bank(raw_train_bank['vision'], 'vision').float().to(cluster_device, non_blocking=True)
 
         n_cls = min(text_bank.shape[0], vision_bank.shape[0])
 
         cluster_result = build_cluster_training_tensor(
+            cfg=self.cfg,
             vision_features=vision_bank[:n_cls],
             n_cls=n_cls,
             sub_seed=seed,
@@ -274,7 +280,14 @@ class ProjectorFMTrainer:
             remove_zero_padding=self.cluster_remove_zero_padding,
         )
 
-        assignments = assign_to_centers(eval_features, cluster_result.centers)
+        kmeans_metric = str(getattr(self.cfg.projector_train, 'kmeans_metric', 'L2')).lower()
+        if kmeans_metric == 'ip':
+            assignments = assign_to_ip_centers(
+                eval_features.to(cluster_result.centers.device, non_blocking=True),
+                cluster_result.centers,
+            ).cpu()
+        else:
+            assignments = assign_to_centers(eval_features, cluster_result.centers)
 
         text_proto = maybe_mean_pool_features(raw_text).to(self.device)
         was_training = self.projector.training

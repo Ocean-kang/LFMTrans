@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from sklearn.cluster import KMeans
 
 
@@ -142,8 +143,8 @@ def run_itsamatch_kmeans(features: torch.Tensor, k: int, seed: int, n_init: int 
 
 
 def pack_cluster_features(features: torch.Tensor, assignments: torch.Tensor, k: int) -> tuple[torch.Tensor, torch.Tensor]:
-    features = features.float().cpu()
-    assignments = assignments.long().cpu()
+    features = features.float()
+    assignments = assignments.long()
 
     counts = torch.bincount(assignments, minlength=int(k))
     if counts.numel() == 0:
@@ -157,7 +158,7 @@ def pack_cluster_features(features: torch.Tensor, assignments: torch.Tensor, k: 
         )
 
     max_count = int(counts.max().item())
-    feat_vision_cluster = torch.zeros(int(k), max_count, features.shape[-1], dtype=features.dtype)
+    feat_vision_cluster = torch.zeros(int(k), max_count, features.shape[-1], dtype=features.dtype, device=features.device)
 
     for cluster_idx in range(int(k)):
         members = features[assignments == cluster_idx]
@@ -174,6 +175,7 @@ def build_cluster_training_tensor(
     n_init: int = 100,
     vision_labels: torch.Tensor | None = None,
     remove_zero_padding: bool = True,
+    cfg=None,
 ) -> ClusterPackResult:
     flat_features, flat_labels, valid_counts_per_class, num_zero_padded_removed = flatten_classwise_features(
         vision_features,
@@ -204,13 +206,21 @@ def build_cluster_training_tensor(
         raise ValueError(
             f"Not enough samples after subsampling: {sampled_features.shape[0]} < {n_cls}"
         )
-
-    centers, assignments = run_itsamatch_kmeans(
-        sampled_features,
-        k=n_cls,
-        seed=sub_seed,
-        n_init=n_init,
-    )
+    kmeans_metric = str(getattr(getattr(cfg, 'projector_train', None), 'kmeans_metric', 'L2')).lower()
+    if kmeans_metric == 'ip':
+        centers, assignments = run_ip_kmeans(
+            sampled_features,
+            k=n_cls,
+            seed=sub_seed,
+            n_init=n_init,
+        )
+    else:
+        centers, assignments = run_itsamatch_kmeans(
+            sampled_features,
+            k=n_cls,
+            seed=sub_seed,
+            n_init=n_init,
+        )
 
     feat_vision_cluster, counts = pack_cluster_features(
         sampled_features,
@@ -235,3 +245,117 @@ def assign_to_centers(features: torch.Tensor, centers: torch.Tensor) -> torch.Te
     centers = centers.float().cpu()
     dists = torch.cdist(features, centers)
     return dists.argmin(dim=1)
+
+def assign_to_ip_centers(features: torch.Tensor, centers: torch.Tensor) -> torch.Tensor:
+    features_ip = _normalize_for_ip(features)
+    centers_ip = _normalize_for_ip(centers)
+    scores = features_ip @ centers_ip.t()
+    return scores.argmax(dim=1)
+
+def _normalize_for_ip(features: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
+    return F.normalize(features.float(), p=2, dim=-1, eps=eps)
+
+def _repair_empty_ip_clusters(
+    assignments: torch.Tensor,
+    scores: torch.Tensor,
+    k: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Move the least confident samples into empty clusters to avoid zero-sized clusters."""
+    counts = torch.bincount(assignments, minlength=int(k))
+    empty_clusters = torch.where(counts == 0)[0]
+    if empty_clusters.numel() == 0:
+        return assignments, counts
+
+    sample_best_scores = scores.gather(1, assignments.unsqueeze(1)).squeeze(1)
+
+    for empty_cluster in empty_clusters.tolist():
+        donor_mask = counts[assignments] > 1
+        donor_indices = torch.where(donor_mask)[0]
+        if donor_indices.numel() == 0:
+            raise ValueError(
+                "Unable to repair empty clusters in IP-KMeans because every cluster has a single sample."
+            )
+
+        donor_scores = sample_best_scores[donor_indices]
+        donor_idx = donor_indices[donor_scores.argmin()]
+        donor_cluster = int(assignments[donor_idx].item())
+
+        assignments[donor_idx] = int(empty_cluster)
+        counts[donor_cluster] -= 1
+        counts[int(empty_cluster)] += 1
+        sample_best_scores[donor_idx] = scores[donor_idx, int(empty_cluster)]
+
+    return assignments, counts
+
+def run_ip_kmeans(features: torch.Tensor, k: int, seed: int, n_init: int = 100) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Inner-product KMeans implemented in pure PyTorch.
+
+    The assignment step maximizes inner product on L2-normalized features/centers,
+    which is equivalent to spherical KMeans and is stable for retrieval-style embeddings.
+    The function keeps the same signature and return type as run_itsamatch_kmeans.
+    """
+    if features.ndim != 2:
+        raise ValueError(f"features must be [N, D], got shape={tuple(features.shape)}")
+
+    num_samples = features.shape[0]
+    k = int(k)
+    n_init = int(n_init)
+
+    if num_samples < k:
+        raise ValueError(f"Not enough samples for clustering: {num_samples} < {k}")
+    if k <= 0:
+        raise ValueError(f"k must be positive, got {k}")
+    if n_init <= 0:
+        raise ValueError(f"n_init must be positive, got {n_init}")
+
+    device = features.device
+    features_ip = _normalize_for_ip(features)
+    generator = torch.Generator(device=device if features_ip.is_cuda else "cpu")
+    generator.manual_seed(int(seed))
+
+    max_iters = 50
+    tol = 1e-4
+    best_objective = None
+    best_centers = None
+    best_assignments = None
+
+    for _ in range(n_init):
+        init_indices = torch.randperm(num_samples, generator=generator, device=device)[:k]
+        centers = features_ip[init_indices].clone()
+        prev_objective = None
+
+        for _ in range(max_iters):
+            scores = features_ip @ centers.t()
+            assignments = scores.argmax(dim=1)
+            assignments, counts = _repair_empty_ip_clusters(assignments, scores, k=k)
+
+            new_centers = torch.zeros(k, features_ip.shape[1], device=device, dtype=features_ip.dtype)
+            new_centers.index_add_(0, assignments, features_ip)
+            new_centers = new_centers / counts.clamp_min(1).unsqueeze(1)
+            new_centers = _normalize_for_ip(new_centers)
+
+            objective = scores.gather(1, assignments.unsqueeze(1)).sum()
+            centers_shift = (new_centers - centers).pow(2).sum(dim=1).max()
+            centers = new_centers
+
+            if prev_objective is not None and torch.abs(objective - prev_objective) <= tol:
+                break
+            if centers_shift <= tol:
+                break
+            prev_objective = objective
+
+        final_scores = features_ip @ centers.t()
+        final_assignments = final_scores.argmax(dim=1)
+        final_assignments, _ = _repair_empty_ip_clusters(final_assignments, final_scores, k=k)
+        final_objective = final_scores.gather(1, final_assignments.unsqueeze(1)).sum()
+
+        if best_objective is None or final_objective > best_objective:
+            best_objective = final_objective
+            best_centers = centers.clone()
+            best_assignments = final_assignments.clone()
+
+    if best_centers is None or best_assignments is None:
+        raise RuntimeError("IP-KMeans failed to produce a valid clustering result.")
+
+    return best_centers.float(), best_assignments.long()
