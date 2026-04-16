@@ -97,6 +97,7 @@ def _print_eval_results(title, results):
 @ex.automain
 def main(_run, _log):
     cfg = edict(_run.config)
+    cfg.train.dataset=str(cfg.train.dataset)
 
     random.seed(cfg.seed)
     np.random.seed(cfg.seed)
