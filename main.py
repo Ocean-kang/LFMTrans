@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 from model.DINO_V2 import DINO_V2 as VisualEncoder
 from model.Encoder import build_text_projector
 from utils.load_feature import load_features_by_model, ensure_dataset_list
+from utils.load_feature_one_photo import load_train_one_photo_features
 from src.anchor_supervised import LFMAnchor
 from src.l2ipcombinemapping import LFMapIpL2Combination
 from src.proj_train import ProjectorFMTrainer, ProjectorFMEvaluator
@@ -53,6 +54,11 @@ def _validation_datasets(cfg):
 
 def _load_train_features(cfg):
     return load_features_by_model([cfg.train.dataset], cfg.train.text_model)
+
+
+
+def _load_train_one_photo_features(cfg, device, _log):
+    return load_train_one_photo_features(cfg, device=device, _log=_log)
 
 
 
@@ -105,10 +111,17 @@ def main(_run, _log):
     torch.cuda.manual_seed_all(cfg.seed)
     torch.multiprocessing.set_start_method('spawn', force=True)
     device = torch.device(f'cuda:{cfg.device_gpu}' if torch.cuda.is_available() else 'cpu')
+    exp_ckpt_dir = os.path.join(
+        _run.meta_info['options']['--file_storage'], str(_run._id)
+    ) if _run._id else os.path.join('train_proj_init', 'public')
+    os.makedirs(exp_ckpt_dir, exist_ok=True)
     
     if not cfg.eval.enabled:
-        if cfg.fmap.type == 'train':
-            feature_dict_train = _load_train_features(cfg)
+        if cfg.fmap.type in ['train', 'train_one_photo']:
+            if cfg.fmap.type == 'train':
+                feature_dict_train = _load_train_features(cfg)
+            else:
+                feature_dict_train = _load_train_one_photo_features(cfg, device=device, _log=_log)
             feature_dict_eval = _load_eval_features(cfg)
             dataset = cfg.train.dataset
             text_dim = feature_dict_train[dataset][cfg.train.text_model].shape[-1]
