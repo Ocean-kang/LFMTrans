@@ -1,8 +1,5 @@
 seed: 2025
 
-device_gpu: 0
-save: 1
-
 paths:
   log_root: &log_root ./train_log
   feature_root: &feature_root ./feature
@@ -101,3 +98,6 @@ loss:
   temperature: 0.1
   ot_projections: 64
   ot_p: 2
+
+train_one_photo:
+  feature_path: ''

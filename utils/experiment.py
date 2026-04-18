@@ -75,7 +75,7 @@ def apply_runtime_paths(cfg, exp_dir: str):
             'checkpoints',
         )
 
-    if getattr(cfg, 'train_one_photo', None) is not None:
+    if (getattr(cfg, 'train_one_photo', None) is not None) and (getattr(cfg, 'projector_train', None) is None):
         cfg.train_one_photo.save_dir = resolve_dir_under_exp(
             exp_dir,
             getattr(cfg.train_one_photo, 'save_dir', ''),

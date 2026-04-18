@@ -1,6 +1,4 @@
 seed: 2025
-device_gpu: 0
-save: 1
 
 paths:
   log_root: &log_root ./train_log
@@ -49,7 +47,3 @@ train_one_photo:
   save_name: ''
   feature_path: ''
   visual_use_prototype: false
-  llama_use_keyword_history: true
-
-extract_one_photo:
-  enabled: 1

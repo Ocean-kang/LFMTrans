@@ -27,7 +27,7 @@ def main(_run, _log):
     torch.manual_seed(cfg.seed)
     torch.cuda.manual_seed_all(cfg.seed)
     torch.multiprocessing.set_start_method('spawn', force=True)
-    device = torch.device(f'cuda:{cfg.device_gpu}' if torch.cuda.is_available() else 'cpu')
+    device = torch.device(f'cuda' if torch.cuda.is_available() else 'cpu')
 
     exp_dir = resolve_experiment_dir(
         _run,
