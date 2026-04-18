@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 from model.DINO_V2 import DINO_V2 as VisualEncoder
 from model.Encoder import build_text_projector
 from utils.load_feature import load_features_by_model, ensure_dataset_list
+from utils.experiment import apply_runtime_paths, resolve_experiment_dir
 from utils.load_feature_one_photo import load_train_one_photo_features
 from src.anchor_supervised import LFMAnchor
 from src.l2ipcombinemapping import LFMapIpL2Combination
@@ -52,8 +53,14 @@ def _validation_datasets(cfg):
     raise ValueError('validation.datasets is empty and validation.dataset is not set')
 
 
+def _feature_root(cfg):
+    paths_cfg = getattr(cfg, 'paths', None)
+    return getattr(paths_cfg, 'feature_root', './feature')
+
+
+
 def _load_train_features(cfg):
-    return load_features_by_model([cfg.train.dataset], cfg.train.text_model)
+    return load_features_by_model([cfg.train.dataset], cfg.train.text_model, feature_root=_feature_root(cfg))
 
 
 
@@ -63,7 +70,7 @@ def _load_train_one_photo_features(cfg, device, _log):
 
 
 def _load_eval_features(cfg):
-    return load_features_by_model(_validation_datasets(cfg), cfg.validation.text_model)
+    return load_features_by_model(_validation_datasets(cfg), cfg.validation.text_model, feature_root=_feature_root(cfg))
 
 
 
@@ -111,11 +118,13 @@ def main(_run, _log):
     torch.cuda.manual_seed_all(cfg.seed)
     torch.multiprocessing.set_start_method('spawn', force=True)
     device = torch.device(f'cuda:{cfg.device_gpu}' if torch.cuda.is_available() else 'cpu')
-    exp_ckpt_dir = os.path.join(
-        _run.meta_info['options']['--file_storage'], str(_run._id)
-    ) if _run._id else os.path.join('train_proj_init', 'public')
-    os.makedirs(exp_ckpt_dir, exist_ok=True)
-    
+    exp_dir = resolve_experiment_dir(
+        _run,
+        default_root=getattr(getattr(cfg, 'paths', {}), 'log_root', 'train_log'),
+    )
+    cfg = apply_runtime_paths(cfg, exp_dir)
+    _log.info('experiment_dir=%s', exp_dir)
+
     if not cfg.eval.enabled:
         if cfg.fmap.type in ['train', 'train_one_photo']:
             if cfg.fmap.type == 'train':
@@ -172,18 +181,17 @@ def main(_run, _log):
         else:
             raise ValueError(f'Unsupported fmap.type: {cfg.fmap.type}')
     else:
-        # Eval
-        # 1. 加载Projector
-        projector = build_text_projector(cfg, input_dim=cfg.eval.input_dim, output_dim=cfg.eval.output_dim)
+        feature_dict_eval = _load_eval_features(cfg)
+        first_dataset = _validation_datasets(cfg)[0]
+        projector = _build_projector_from_feature_dict(cfg, feature_dict_eval, device, first_dataset)
         state_dict = torch.load(f"{cfg.eval.checkpoint_path}", map_location='cpu')
         projector.load_state_dict(state_dict['state_dict'] if 'state_dict' in state_dict else state_dict)
         projector.eval()
         projector.to(device)
-        # 2.加载DINOv2
+
         visual_encoder = VisualEncoder(cfg=cfg.eval)
         visual_encoder.eval()
         visual_encoder.to(device)
-        # 3. evaluation
-        feature_dict_eval = _load_eval_features(cfg)
+
         eval_on_datasets(cfg, visual_encoder, projector, feature_dict_eval, device, _log)
 

@@ -6,6 +6,12 @@ import torch.nn as nn
 
 from torchvision import transforms as T
 
+from dinov2.hub.backbones import (
+    dinov2_vitb14_reg,
+    dinov2_vitg14_reg,
+    dinov2_vitl14_reg,
+    dinov2_vits14_reg,
+)
 from utils.kmeans import train_kmeans_faiss as train_kmeans
 
 class RandomApply(nn.Module):
@@ -30,11 +36,11 @@ class DINO_V2(nn.Module):
         # self.patch_size = 14
         self.patch_size = 14
         BACKBONE_SIZE = cfg.DINOv2_BACKBONE_SIZE # in ("small", "base", "large" or "giant")
-        backbone_archs = {
-            "small": f"vits{self.patch_size}_reg",
-            "base": f"vitb{self.patch_size}_reg",
-            "large": f"vitl{self.patch_size}_reg",
-            "giant": f"vitg{self.patch_size}_reg",
+        backbone_builders = {
+            "small": dinov2_vits14_reg,
+            "base": dinov2_vitb14_reg,
+            "large": dinov2_vitl14_reg,
+            "giant": dinov2_vitg14_reg,
         }
         backbone_dims = {
             "small": 384,
@@ -42,11 +48,11 @@ class DINO_V2(nn.Module):
             "large": 1024,
             "giant": 1536,
         }
-        self.backnbone_dim = backbone_dims[BACKBONE_SIZE]
-        visual_backbone_arch = backbone_archs[BACKBONE_SIZE]
-        visual_backbone_name = f"dinov2_{visual_backbone_arch}"
+        if BACKBONE_SIZE not in backbone_builders:
+            raise ValueError(f"Unsupported DINOv2_BACKBONE_SIZE: {BACKBONE_SIZE}")
 
-        self.visual_backbone = torch.hub.load(repo_or_dir="DINOv2", source='local', model=visual_backbone_name)
+        self.backnbone_dim = backbone_dims[BACKBONE_SIZE]
+        self.visual_backbone = backbone_builders[BACKBONE_SIZE](pretrained=True)
         self.visual_backbone.eval()
 
         self.img_aug = torch.nn.Sequential(

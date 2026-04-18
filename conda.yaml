@@ -1,39 +1,36 @@
-name: LFmap
+name: lfmtrans
 channels:
   - pytorch
   - nvidia
   - conda-forge
-  - https://mirrors.ustc.edu.cn/anaconda/cloud/pytorch
-  - https://mirrors.ustc.edu.cn/anaconda/cloud/conda-forge
   - defaults
+
 dependencies:
   - python=3.10
-
   - pytorch=2.0.1
   - torchvision=0.15.2
   - torchaudio=2.0.2
   - pytorch-cuda=11.7
-
   - faiss-gpu
-
-  - matplotlib
-  - numpy>=1.24.0
+  - numpy>=1.24
+  - scipy
   - pandas
   - matplotlib
-  - pip
   - scikit-learn
-  - PyYAML
-
+  - pyyaml
   - tqdm
   - iopath
   - easydict
   - pycocotools
+  - pillow
   - pip
-
   - pip:
-    - scared
-    - omegaconf
-    - regex
-    - submitit
-    - termcolor
-    - torchmetrics
+      - sacred
+      - omegaconf
+      - regex
+      - submitit
+      - termcolor
+      - torchmetrics
+      - pot
+      - tiktoken
+      - opencv-python

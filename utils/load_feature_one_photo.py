@@ -218,11 +218,15 @@ def _build_text_bank(cfg, selection: OnePhotoSelection) -> torch.Tensor:
     temperature = float(getattr(one_cfg, 'llama_temperature', 0.6))
     top_p = float(getattr(one_cfg, 'llama_top_p', 0.9))
     max_gen_len = int(getattr(one_cfg, 'llama_max_gen_len', 0))
-    use_keyword_history = bool(getattr(one_cfg, 'llama_use_keyword_history', False))
 
     all_prompts = _build_prompt_pool()
     prompts = [all_prompts[i] for i in prompt_ids]
     system_msg = globals()[f'system_msg_{system_msg_id}']
+
+    if len(prompts) == 0:
+        raise ValueError('No prompts were selected for llama text bank.')
+    if bank_size <= 0:
+        raise ValueError(f'bank_size must be positive, got {bank_size}.')
 
     generator = Llama.build(
         ckpt_dir=one_cfg.llama_ckpt_dir,
@@ -234,35 +238,42 @@ def _build_text_bank(cfg, selection: OnePhotoSelection) -> torch.Tensor:
         MASTER_PORT=str(getattr(cfg, 'MASTER_PORT', 29500)),
     )
 
-    rounds = int(math.ceil(bank_size / max(1, len(prompts))))
+    # 和老代码一致：每一轮只跑一批 prompts
+    # 不同的是这里为了凑满 bank_size，会多跑几轮
+    rounds = int(math.ceil(bank_size / len(prompts)))
+
     text_bank = None
-    key_words: Dict[str, List[str]] = {name: [] for name in selection.class_names}
 
     for cls_idx, cls_name in enumerate(tqdm.tqdm(selection.class_names)):
         collected = []
 
         for _ in range(rounds):
             dialogs = [[] for _ in prompts]
+
+            # 每轮固定按 prompt 顺序构造输入
             for i, prompt in enumerate(prompts):
                 dialogs[i].append({
                     'role': 'system',
                     'content': system_msg.replace('[prompt]', prompt),
                 })
-                prefix = ''
-                if use_keyword_history and len(key_words[cls_name]) > 0:
-                    prefix = 'Beside ' + str(key_words[cls_name]).replace("'", '') + ','
                 dialogs[i].append({
                     'role': 'user',
-                    'content': f"{prefix}{prompt.replace('[cls]', f'[{cls_name}]')}",
+                    'content': prompt.replace('[cls]', f'[{cls_name}]'),
                 })
 
-            generations = _run_llama_dialogs(generator, dialogs, temperature, top_p, max_gen_len)
+            # 一次性跑这一轮的全部 prompt
+            generations = _run_llama_dialogs(
+                generator, dialogs, temperature, top_p, max_gen_len
+            )
+
+            # 按返回顺序收集特征，和老代码一样：每个 prompt -> 一个均值特征
             for generation in generations:
                 feat = torch.stack(generation['corr_feats'], dim=0).mean(dim=0).cpu().float()
                 collected.append(feat)
-                key_words[cls_name].append(generation['content'])
+
                 if len(collected) >= bank_size:
                     break
+
             if len(collected) >= bank_size:
                 break
 
@@ -271,13 +282,17 @@ def _build_text_bank(cfg, selection: OnePhotoSelection) -> torch.Tensor:
 
         if text_bank is None:
             text_dim = int(collected[0].shape[-1])
-            text_bank = torch.zeros((len(selection.class_names), bank_size, text_dim), dtype=torch.float32)
+            text_bank = torch.zeros(
+                (len(selection.class_names), bank_size, text_dim),
+                dtype=torch.float32
+            )
 
+        # 如果 bank_size 不是 len(prompts) 的整数倍，就循环复制已有结果补齐
         if len(collected) < bank_size:
-            original = list(collected)
+            base = list(collected)
             ptr = 0
             while len(collected) < bank_size:
-                collected.append(original[ptr % len(original)].clone())
+                collected.append(base[ptr % len(base)].clone())
                 ptr += 1
 
         text_bank[cls_idx] = torch.stack(collected[:bank_size], dim=0)

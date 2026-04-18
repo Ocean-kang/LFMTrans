@@ -1,0 +1,55 @@
+seed: 2025
+device_gpu: 0
+save: 1
+
+paths:
+  log_root: &log_root ./train_log
+  feature_root: &feature_root ./feature
+  llama_root: &llama_root ./Meta-Llama-3-8B-Instruct
+  checkpoint_subdir: &checkpoint_subdir checkpoints
+  one_photo_feature_subdir: &one_photo_feature_subdir features/one_photo
+  one_photo_debug_subdir: &one_photo_debug_subdir features/one_photo/debug
+
+dataset:
+  resize: 518
+  root_dir_mscoco: data/mscoco
+  root_dir_ade20k: data/ade20k/
+  root_dir_pc: data/pascal_context
+  root_dir_voc: data/pascal_voc
+  DINOv2_BACKBONE_SIZE: &dino_backbone large   # small, base, large, giant
+  val_batch_size: 8
+  num_workers: 2
+
+train:
+  dataset: cocostuff
+  batchsize: 1
+  sample: 20
+  text_model: llama_unmean        # llama_unmean, mpnet_unmean, llama, mpnet
+  type: patch_unmean              # patch_unmean, patch 
+
+train_one_photo:
+  split: train
+  num_images: 3
+  target_num_classes: 16
+  expand_until_target: true
+  bank_size: 8
+  sample_seed: 2025
+
+  llama_ckpt_dir: ./Meta-Llama-3-8B-Instruct
+  llama_tokenizer_path: ./Meta-Llama-3-8B-Instruct/tokenizer.model
+  llama_max_seq_len: 1024
+  llama_max_batch_size: 8
+  llama_temperature: 0.6
+  llama_top_p: 0.9
+  llama_max_gen_len: 0
+  llama_system_msg_id: 2
+  llama_prompt_ids: [8, 12, 26, 30]
+
+  save_dir: features/one_photo
+  save_name: ''
+  feature_path: ''
+  visual_use_prototype: false
+  llama_use_keyword_history: true
+
+extract_one_photo:
+  enabled: 1
