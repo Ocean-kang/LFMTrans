@@ -9,7 +9,7 @@ paths:
   one_photo_debug_subdir: &one_photo_debug_subdir features/one_photo/debug
 
 dataset:
-  resize: 518
+  resize: 1036
   root_dir_mscoco: data/mscoco
   root_dir_ade20k: data/ade20k/
   root_dir_pc: data/pascal_context
@@ -28,9 +28,7 @@ train:
 train_one_photo:
   split: train
   num_images: 3
-  target_num_classes: 16
-  expand_until_target: true
-  bank_size: 8
+  bank_size: 12
   sample_seed: 2025
 
   llama_ckpt_dir: ./Meta-Llama-3-8B-Instruct

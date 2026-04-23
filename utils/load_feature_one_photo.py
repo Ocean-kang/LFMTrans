@@ -65,9 +65,7 @@ def _select_random_images_and_classes(cfg, dataset, dataset_name: str) -> OnePho
     generator.manual_seed(int(getattr(one_cfg, 'sample_seed', getattr(cfg, 'seed', 0))))
     perm = torch.randperm(len(dataset), generator=generator).tolist()
 
-    target_num_classes = int(getattr(one_cfg, 'target_num_classes', 10))
     num_images = int(getattr(one_cfg, 'num_images', 1))
-    expand_until_target = bool(getattr(one_cfg, 'expand_until_target', True))
 
     sampled_indices: List[int] = []
     class_ids: List[int] = []
@@ -86,28 +84,19 @@ def _select_random_images_and_classes(cfg, dataset, dataset_name: str) -> OnePho
             if cid not in class_id_set:
                 class_id_set.add(cid)
                 class_ids.append(cid)
-            if len(class_ids) >= target_num_classes:
-                break
 
-        enough_images = len(sampled_indices) >= num_images
-        enough_classes = len(class_ids) >= target_num_classes
-        if enough_images and (enough_classes or not expand_until_target):
+        if len(sampled_indices) >= num_images:
             break
-        if enough_classes and expand_until_target:
-            break
+
+    if len(sampled_indices) < num_images:
+        raise RuntimeError(
+            f"Requested num_images={num_images}, but only found {len(sampled_indices)} valid images in {dataset_name}."
+        )
 
     if len(class_ids) == 0:
         raise RuntimeError('Failed to find any valid semantic classes from the sampled images.')
 
-    class_ids = class_ids[:target_num_classes]
     class_names = [dataset.name_list[cid] for cid in class_ids]
-
-    if len(class_ids) < target_num_classes:
-        raise RuntimeError(
-            f"Requested target_num_classes={target_num_classes}, but only found {len(class_ids)} classes "
-            f"from {len(sampled_indices)} sampled images. Increase train_one_photo.num_images or enable "
-            f"expand_until_target."
-        )
 
     return OnePhotoSelection(
         dataset_name=dataset_name,
