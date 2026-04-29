@@ -34,6 +34,20 @@ FEATURE_SPECS = {
         'vision_template': 'feat_synonym_dinov2_{dataset}_L.pkl',
         'supported_datasets': {'ImageNet-100', 'CIFAR-100'},
     },
+    'clipb': {
+        'text_key': 'clipb',
+        'vision_key': 'patch',
+        'text_template': 'CLIP/feat_clipb_{dataset}_L.pkl',
+        'vision_template': 'feat_dinov2_patch_{dataset}_L.pkl',
+        'supported_datasets': None,
+    },
+    'clipb_unmean': {
+        'text_key': 'clipb_unmean',
+        'vision_key': 'patch_unmean',
+        'text_template': 'CLIP/feat_clipb_{dataset}_L_unmean.pkl',
+        'vision_template': 'feat_synonym_dinov2_{dataset}_L.pkl',
+        'supported_datasets': None,
+    },
 }
 
 
@@ -101,6 +115,14 @@ def load_feature_mpnet_unmean(dataset, feature_root: Optional[str] = None):
     return _load_feature_pair(dataset, 'mpnet_unmean', feature_root=feature_root)
 
 
+def load_feature_clipb(dataset, feature_root: Optional[str] = None):
+    return _load_feature_pair(dataset, 'clipb', feature_root=feature_root)
+
+
+def load_feature_clipb_unmean(dataset, feature_root: Optional[str] = None):
+    return _load_feature_pair(dataset, 'clipb_unmean', feature_root=feature_root)
+
+
 def llama_features(datasets, feature_root: Optional[str] = None):
     feat_dict = {}
     for dataset in datasets:
@@ -129,6 +151,20 @@ def mpnet_unmean_features(datasets, feature_root: Optional[str] = None):
     return feat_dict
 
 
+def clipb_features(datasets, feature_root: Optional[str] = None):
+    feat_dict = {}
+    for dataset in datasets:
+        feat_dict[f'{dataset}'] = load_feature_clipb(dataset, feature_root=feature_root)
+    return feat_dict
+
+
+def clipb_unmean_features(datasets, feature_root: Optional[str] = None):
+    feat_dict = {}
+    for dataset in datasets:
+        feat_dict[f'{dataset}'] = load_feature_clipb_unmean(dataset, feature_root=feature_root)
+    return feat_dict
+
+
 def load_features_by_model(datasets, text_model: str, feature_root: Optional[str] = None):
     datasets = ensure_dataset_list(datasets)
     loader_map = {
@@ -136,6 +172,8 @@ def load_features_by_model(datasets, text_model: str, feature_root: Optional[str
         'llama_unmean': llama_unmean_features,
         'mpnet': mpnet_features,
         'mpnet_unmean': mpnet_unmean_features,
+        'clipb': clipb_features,
+        'clipb_unmean': clipb_unmean_features,
     }
     if text_model not in loader_map:
         raise ValueError(f'Unsupported text_model: {text_model}')
