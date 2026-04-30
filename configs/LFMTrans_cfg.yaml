@@ -1,12 +1,8 @@
 seed: 2025
 
 paths:
-  log_root: &log_root ./train_log
-  feature_root: &feature_root ./feature
-  llama_root: &llama_root ./Meta-Llama-3-8B-Instruct
-  checkpoint_subdir: &checkpoint_subdir checkpoints
-  one_photo_feature_subdir: &one_photo_feature_subdir features/one_photo
-  one_photo_debug_subdir: &one_photo_debug_subdir features/one_photo/debug
+  log_root: ./train_log
+  feature_root: ./feature
 
 dataset:
   resize: 518
@@ -20,15 +16,12 @@ dataset:
 
 eval:
   DINOv2_BACKBONE_SIZE: *dino_backbone
-  input_dim: 4096
-  output_dim: 1024
   enabled: 0
   method: LFMTrans   # LFMTrans, uvlt, talk2dino
   checkpoint_path: ''
 
 train:
   dataset: cocostuff
-  batchsize: 1
   sample: 20
   text_model: llama_unmean        # llama_unmean, mpnet_unmean, llama, mpnet
   type: patch_unmean              # patch_unmean, patch
@@ -49,7 +42,7 @@ anchor:
 validation:
   dataset: cocostuff
   datasets: ['cocostuff', '150', 'voc20', 'pc59', 'CIFAR-100', 'ImageNet-100']
-  text_model: llama               # llama, mpnet
+  text_model: llama               # llama, mpnet, clipb
   type: patch
   shuffle_before_eval: false
   shuffle_trials: 1
@@ -78,7 +71,7 @@ projector_train:
   weight_decay: 1.0e-4
   grad_clip: 2.0
   log_every: 10
-  ckpt_dir: *checkpoint_subdir
+  ckpt_dir: checkpoints
   report_train_each_epoch: true
 
   mask: 1                         # 1=original training, 2=cluster training

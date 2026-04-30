@@ -58,6 +58,44 @@ def _feature_root(cfg):
     return getattr(paths_cfg, 'feature_root', './feature')
 
 
+def _infer_eval_text_model_from_checkpoint(checkpoint_path):
+    name = os.path.basename(str(checkpoint_path)).lower()
+    if 'clipb' in name:
+        return 'clipb'
+    if 'mpnet' in name:
+        return 'mpnet'
+    if 'llama' in name:
+        return 'llama'
+    return None
+
+
+def _infer_eval_vision_type_from_checkpoint(checkpoint_path):
+    name = os.path.basename(str(checkpoint_path)).lower()
+    if 'patch' in name:
+        return 'patch'
+    return None
+
+
+def _apply_eval_checkpoint_defaults(cfg, _log):
+    checkpoint_path = getattr(cfg.eval, 'checkpoint_path', '')
+    if not checkpoint_path:
+        raise ValueError('eval.checkpoint_path must be set when eval.enabled=1')
+
+    text_model = _infer_eval_text_model_from_checkpoint(checkpoint_path)
+    if text_model is not None:
+        cfg.validation.text_model = text_model
+
+    vision_type = _infer_eval_vision_type_from_checkpoint(checkpoint_path)
+    if vision_type is not None:
+        cfg.validation.type = vision_type
+
+    _log.info(
+        'eval feature keys: validation.text_model=%s validation.type=%s',
+        cfg.validation.text_model,
+        cfg.validation.type,
+    )
+
+
 
 def _load_train_features(cfg):
     return load_features_by_model([cfg.train.dataset], cfg.train.text_model, feature_root=_feature_root(cfg))
@@ -181,6 +219,7 @@ def main(_run, _log):
         else:
             raise ValueError(f'Unsupported fmap.type: {cfg.fmap.type}')
     else:
+        _apply_eval_checkpoint_defaults(cfg, _log)
         feature_dict_eval = _load_eval_features(cfg)
         first_dataset = _validation_datasets(cfg)[0]
         projector = _build_projector_from_feature_dict(cfg, feature_dict_eval, device, first_dataset)
