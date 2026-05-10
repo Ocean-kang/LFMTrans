@@ -2,10 +2,11 @@ import tqdm
 import numpy as np
 
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from dataloaders.datasets import load_dataset_ade20k, load_dataset_coco, load_train_dataset_pc, load_train_dataset_voc
-from utils.load_feature import ensure_dataset_list
+from utils.load_feature import ensure_dataset_list, maybe_mean_pool_features
 
 
 SUPPORTED_SEG_DATASETS = {'cocostuff', '150', '847', 'pc59', 'pc459', 'voc20', 'voc20b'}
@@ -85,12 +86,36 @@ def _build_eval_loader(cfg, dataset_name):
     )
 
 
-def eval_on_dataset(visual_encoder, projector, data_loader, feat_text, dataset, device_img, method, _log):
+def _normalize_prototypes(feat, device_img):
+    feat = maybe_mean_pool_features(feat.float()).to(device_img)
+    return F.normalize(feat, dim=-1)
+
+
+def _predict_masks_from_prototypes(patchtokens_norm, prototypes_norm, num_cat, image_size, patch_grid):
+    N, H, W = image_size
+    h, w = patch_grid
+    pred_masks = patchtokens_norm @ prototypes_norm.transpose(1, 0)
+    pred_masks = pred_masks.view(N, h, w, num_cat)
+    pred_masks = F.interpolate(pred_masks.permute(0, 3, 1, 2), (H, W), mode='bilinear')
+    return pred_masks.permute(0, 2, 3, 1).max(-1)[1]
+
+
+def _finalize_pred_masks(pred_masks, label_cat, dataset):
+    N = pred_masks.shape[0]
+    if dataset == 'voc20b':
+        pred_masks[pred_masks >= 20] = 20
+    pred_masks = pred_masks.view(N, -1).cpu().numpy()
+    label_cat = label_cat.view(N, -1).cpu().numpy()
+    return pred_masks, label_cat
+
+
+def eval_on_dataset(visual_encoder, projector, data_loader, feat_text, dataset, device_img, method, _log, feat_vision=None):
     num_cat = _num_categories(dataset)
     patch_size = visual_encoder.module.patch_size if hasattr(visual_encoder, 'module') else visual_encoder.patch_size
 
     visual_encoder.eval()
-    projector.eval()
+    if projector is not None:
+        projector.eval()
 
     feat_text = feat_text.float().to(device_img)
 
@@ -104,9 +129,13 @@ def eval_on_dataset(visual_encoder, projector, data_loader, feat_text, dataset, 
         else:
             raise FileNotFoundError(f"Method '{method}' not recognized. No corresponding file or mapping found.")
 
-    feat_text_trans_norm = feat_text_trans / feat_text_trans.norm(dim=-1, keepdim=True)
-    feat_text_trans_norm = feat_text_trans_norm.to(device_img)
-    histogram = np.zeros((num_cat, num_cat))
+    prototype_sets = {
+        'translated_text': F.normalize(feat_text_trans, dim=-1).to(device_img),
+    }
+    if feat_vision is not None:
+        prototype_sets['vision_prototype'] = _normalize_prototypes(feat_vision, device_img)
+
+    histograms = {name: np.zeros((num_cat, num_cat)) for name in prototype_sets}
 
     for _, sample in tqdm.tqdm(enumerate(data_loader), total=len(data_loader)):
         label_cat = sample['label_cat']
@@ -120,29 +149,34 @@ def eval_on_dataset(visual_encoder, projector, data_loader, feat_text, dataset, 
             _, patchtokens = visual_encoder.module(images, augment=False, ret_dense_feat=True)
         else:
             _, patchtokens = visual_encoder(images, augment=False, ret_dense_feat=True)
-        patchtokens_norm = patchtokens / patchtokens.norm(dim=-1, keepdim=True)
+        patchtokens_norm = F.normalize(patchtokens, dim=-1)
 
-        pred_masks = patchtokens_norm @ feat_text_trans_norm.transpose(1, 0)
-        pred_masks = pred_masks.view(N, h, w, num_cat)
-        pred_masks = torch.nn.functional.interpolate(pred_masks.permute(0, 3, 1, 2), (H, W), mode='bilinear')
-        pred_masks = pred_masks.permute(0, 2, 3, 1).max(-1)[1]
+        for name, prototypes_norm in prototype_sets.items():
+            pred_masks = _predict_masks_from_prototypes(
+                patchtokens_norm,
+                prototypes_norm,
+                num_cat,
+                image_size=(N, H, W),
+                patch_grid=(h, w),
+            )
+            pred_masks, label_cat_np = _finalize_pred_masks(pred_masks, label_cat, dataset)
+            histograms[name] += scores(label_cat_np, pred_masks, num_cat)
 
-        if dataset == 'voc20b':
-            pred_masks[pred_masks >= 20] = 20
+    results = {name: get_result_metrics(histogram) for name, histogram in histograms.items()}
+    for name, metric in results.items():
+        _log.info(
+            'Epoch: %02d\t- mIoU: %s: %.4f\tdataset: %s',
+            0,
+            name,
+            metric['mean_iou'],
+            dataset,
+        )
 
-        pred_masks = pred_masks.view(N, -1).cpu().numpy()
-        label_cat = label_cat.view(N, -1).cpu().numpy()
-        histogram += scores(label_cat, pred_masks, num_cat)
-
-    results = get_result_metrics(histogram)
-    _log.info(
-        'Epoch: %02d\t- mIoU: translated_text: %.4f\tdataset: %s',
-        0,
-        results['mean_iou'],
-        dataset,
-    )
-    return results
-
+    output = dict(results['translated_text'])
+    output['translated_text'] = results['translated_text']
+    if 'vision_prototype' in results:
+        output['vision_prototype'] = results['vision_prototype']
+    return output
 
 def eval_on_datasets(cfg, visual_encoder, projector, feature_dict, device_img, _log):
     requested = ensure_dataset_list(getattr(cfg.validation, 'datasets', []))
@@ -167,6 +201,7 @@ def eval_on_datasets(cfg, visual_encoder, projector, feature_dict, device_img, _
             device_img,
             method,
             _log,
+            feat_vision=feature_dict[dataset][cfg.validation.type],
         )
 
     return results
