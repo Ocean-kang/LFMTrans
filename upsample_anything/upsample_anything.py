@@ -203,7 +203,7 @@ def gs_jbu_aniso_noparent(
             idx_flat = (Ui * Wl + Vi).reshape(-1)
             for c0 in range(0, C, C_chunk):
                 c1 = min(c0 + C_chunk, C)
-                feat_sel = feat_flat.index_select(0, idx_flat)[:, c0:c1]  # [Bn*Hh*Wh, Cc]
+                feat_sel = feat_flat[:, c0:c1].contiguous().index_select(0, idx_flat)  # [Bn*Hh*Wh, Cc]
                 feat_sel = feat_sel.view(Bn, Hh, Wh, c1 - c0)             # [Bn,Hh,Wh,Cc]
                 num_s[c0:c1].add_((feat_sel * s[..., None]).sum(dim=0).permute(2, 0, 1))
 

@@ -66,7 +66,7 @@ def main(_run, _log):
     ])
 
     img_tensor = transform(img).unsqueeze(0).to(device)  # [1, 3, H, W]
-    breakpoint()
+
     # 4. 提取 DINOv2 patch tokens
     with torch.no_grad():
         _, patchtokens = dinov2(img_tensor, augment=False, ret_dense_feat=True)
@@ -90,6 +90,7 @@ def main(_run, _log):
     feat_hr = UPA(img, feat_lr)
 
     print("HR feature:", feat_hr.shape)
+    breakpoint()
 
     # 保存一下，后面你可以加载做相似度/分割
     torch.save(
@@ -99,4 +100,3 @@ def main(_run, _log):
         },
         "dinov2_vitl14_upa_feature.pt",
     )
-    breakpoint()
