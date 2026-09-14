@@ -1,0 +1,6 @@
+# Extra config loaded after configs/LFMTrans_cfg.yaml.
+# The original baseline config is not modified.
+loss:
+  w_structure: 0.1
+  structure_temperature: 0.1
+  structure_levels: 3
